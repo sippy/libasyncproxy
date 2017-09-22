@@ -16,9 +16,11 @@
 
 #include "asyncproxy.h"
 
-#define AP_STATE_RUN   0
-#define AP_STATE_CEASE 1
-#define AP_STATE_QUIT  2
+#define AP_STATE_INIT  0
+#define AP_STATE_START 1
+#define AP_STATE_RUN   2
+#define AP_STATE_CEASE 3
+#define AP_STATE_QUIT  4
 
 #define DBG_LEVEL 1
 
@@ -109,6 +111,10 @@ asyncproxy_run(void *args)
         fprintf(stderr, "asyncproxy_run(%p)\n", ap);
         fflush(stderr);
     }
+    pthread_mutex_lock(&ap->mutex);
+    if (ap->state == AP_STATE_START)
+        ap->state = AP_STATE_RUN;
+    pthread_mutex_unlock(&ap->mutex);
 
     memset(pfds, '\0', sizeof(pfds));
     memset(bufs, '\0', sizeof(bufs));
@@ -271,14 +277,11 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
         goto e2;
     }
 
-    if (pthread_create(&ap->thread, NULL, asyncproxy_run, ap) != 0) {
-        fprintf(stderr, "asyncproxy_ctor: pthread_create() failed: %s\n", strerror(errno));
-        goto e3;
-    }
-
     return (ap);
+#if 0
 e3:
     pthread_mutex_destroy(&ap->mutex);
+#endif
 e2:
     close(ap->sink);
 e1:
@@ -288,10 +291,38 @@ e0:
     return (NULL);
 }
 
+int
+asyncproxy_start(void *_ap)
+{
+    struct asyncproxy *ap;
+
+    ap = (struct asyncproxy *)_ap;
+    if (ap->debug > 0) {
+        fprintf(stderr, "asyncproxy_start(%p)\n", ap);
+        fflush(stderr);
+    }
+    pthread_mutex_lock(&ap->mutex);
+    if (ap->debug > 0)
+        assert(ap->state == AP_STATE_INIT);
+    ap->state = AP_STATE_START;
+    pthread_mutex_unlock(&ap->mutex);
+    if (pthread_create(&ap->thread, NULL, asyncproxy_run, ap) != 0) {
+        fprintf(stderr, "asyncproxy_start: pthread_create() failed: %s\n", strerror(errno));
+        pthread_mutex_lock(&ap->mutex);
+        assert(ap->state == AP_STATE_START);
+        ap->state = AP_STATE_INIT;
+        pthread_mutex_unlock(&ap->mutex);
+        return (-1);
+    }
+    return (0);
+}
+
+
 void
 asyncproxy_dtor(void *_ap)
 {
     struct asyncproxy *ap;
+    int needjoin;
 
     ap = (struct asyncproxy *)_ap;
     if (ap->debug > 0) {
@@ -299,10 +330,15 @@ asyncproxy_dtor(void *_ap)
         fflush(stderr);
     }
 
+    needjoin = 1;
     pthread_mutex_lock(&ap->mutex);
-    ap->state = AP_STATE_CEASE;
+    if (ap->state == AP_STATE_INIT)
+        needjoin = 0;
+    if (ap->state == AP_STATE_START || ap->state == AP_STATE_RUN)
+        ap->state = AP_STATE_CEASE;
     pthread_mutex_unlock(&ap->mutex);
-    pthread_join(ap->thread, NULL);
+    if (needjoin)
+        pthread_join(ap->thread, NULL);
     pthread_mutex_destroy(&ap->mutex);
     close(ap->sink);
     close(ap->source);
@@ -318,7 +354,7 @@ asyncproxy_isalive(void *_ap)
     ap = (struct asyncproxy *)_ap;
 
     pthread_mutex_lock(&ap->mutex);
-    rval = (ap->state == AP_STATE_RUN);
+    rval = (ap->state == AP_STATE_START) || (ap->state == AP_STATE_RUN);
     pthread_mutex_unlock(&ap->mutex);
 
     if (ap->debug > 0) {

@@ -129,7 +129,7 @@ asyncproxy_run(void *args)
         pthread_mutex_unlock(&ap->mutex);
         if (state != AP_STATE_RUN)
             break;
-        n = poll(pfds, 2, 10);
+        n = poll(pfds, 2, 100);
         if (n <= 0) {
             continue;
         }

@@ -138,6 +138,7 @@ asyncproxy_run(void *args)
                 assert((pfds[i].revents & POLLNVAL) == 0);
             if (pfds[i].revents & POLLHUP) {
                 fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
+                fflush(stderr);
                 eidx = i;
                 goto out;
             }
@@ -256,7 +257,7 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     snprintf(pnum, sizeof(pnum), "%u", portn);
     n = resolve(tosa(&destaddr), AF_INET, dest, pnum, 0);
     if (n != 0) {
-        fprintf(stderr, "asyncproxy_ctor: bind() failed: %s\n", gai_strerror(n));
+        fprintf(stderr, "asyncproxy_ctor: resolve() failed: %s\n", gai_strerror(n));
         goto e2;
     }
     if (connect(ap->sink, tocsa(&destaddr), sizeof(struct sockaddr_in)) != 0) {

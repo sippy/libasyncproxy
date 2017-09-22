@@ -34,6 +34,7 @@ struct asyncproxy {
     pthread_mutex_t mutex;
     int state;
     int debug;
+    struct sockaddr_in destaddr;
 };
 
 #define tosa(p) (struct sockaddr *)(void *)(p)
@@ -98,7 +99,7 @@ struct io_buf {
 static void *
 asyncproxy_run(void *args)
 {
-    int n, i, state, j, eidx;
+    int n, i, state, j, eidx, rval;
     struct asyncproxy *ap;
     struct pollfd pfds[2];
     struct io_buf bufs[2];
@@ -123,12 +124,29 @@ asyncproxy_run(void *args)
     pfds[1].fd = ap->sink;
     pfds[1].events = POLLIN;
 
+    rval = connect(ap->sink, tocsa(&ap->destaddr), sizeof(struct sockaddr_in));
+    if (rval != 0) {
+        fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink, rval);
+        fflush(stderr);
+        if (errno != EINPROGRESS) {
+            fprintf(stderr, "asyncproxy_run: connect() failed: %s\n", strerror(errno));
+            fflush(stderr);
+            goto out;
+        }
+        pfds[1].events |= POLLOUT;
+    }
+
     for (;;) {
         pthread_mutex_lock(&ap->mutex);
         state = ap->state;
         pthread_mutex_unlock(&ap->mutex);
-        if (state != AP_STATE_RUN)
+        if (state != AP_STATE_RUN) {
+            if (ap->debug > 1) {
+                fprintf(stderr, "asyncproxy_run(%p): exit on state %d\n", ap, state);
+                fflush(stderr);
+            }
             break;
+        }
         n = poll(pfds, 2, 100);
         if (n <= 0) {
             continue;
@@ -213,7 +231,6 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
   const char *bindto)
 {
     struct asyncproxy *ap;
-    struct sockaddr_in destaddr;
     char pnum[6];
     int n;
 
@@ -255,13 +272,9 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     }
 
     snprintf(pnum, sizeof(pnum), "%u", portn);
-    n = resolve(tosa(&destaddr), AF_INET, dest, pnum, 0);
+    n = resolve(tosa(&ap->destaddr), AF_INET, dest, pnum, 0);
     if (n != 0) {
         fprintf(stderr, "asyncproxy_ctor: resolve() failed: %s\n", gai_strerror(n));
-        goto e2;
-    }
-    if (connect(ap->sink, tocsa(&destaddr), sizeof(struct sockaddr_in)) != 0) {
-        fprintf(stderr, "asyncproxy_ctor: connect() failed: %s\n", strerror(errno));
         goto e2;
     }
     if (asp_socket_setnonblock(ap->source) == -1) {

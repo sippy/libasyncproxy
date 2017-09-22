@@ -28,6 +28,7 @@ struct asyncproxy {
     pthread_t thread;
     pthread_mutex_t mutex;
     int state;
+    int debug;
 };
 
 #define tosa(p) (struct sockaddr *)(void *)(p)
@@ -123,7 +124,8 @@ asyncproxy_run(void *args)
             if (pfds[i].revents & POLLIN && BUF_FREE(&bufs[i]) > 0) {
                 {static int b=0; while (b);}
                 rlen = recv(pfds[i].fd, BUF_P(&bufs[i]), BUF_FREE(&bufs[i]), 0);
-                fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, rlen, pfds[i].fd);
+                if (ap->debug)
+                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, rlen, pfds[i].fd);
                 if (rlen <= 0)
                     goto out;
                 bufs[i].len += rlen;
@@ -139,7 +141,8 @@ asyncproxy_run(void *args)
                 if (pfds[j].events & POLLOUT && (pfds[j].revents & POLLOUT) == 0)
                     continue;
                 rlen = send(pfds[j].fd, bufs[i].data, bufs[i].len, 0);
-                fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", ap, rlen, pfds[j].fd);
+                if (ap->debug)
+                    fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", ap, rlen, pfds[j].fd);
                 if (rlen < bufs[i].len) {
                     pfds[j].events |= POLLOUT;
                 }

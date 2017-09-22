@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -93,11 +94,13 @@ struct io_buf {
 static void *
 asyncproxy_run(void *args)
 {
-    int n, i, state, j;
+    int n, i, state, j, eidx;
     struct asyncproxy *ap;
     struct pollfd pfds[2];
     struct io_buf bufs[2];
     ssize_t rlen;
+
+    eidx = -1;
 
     ap = (struct asyncproxy *)args;
     fprintf(stderr, "asyncproxy_run(%p)\n", ap);
@@ -120,14 +123,21 @@ asyncproxy_run(void *args)
             continue;
         }
         for (i = 0; i < 2; i++) {
+            if (pfds[i].revents & (POLLNVAL | POLLHUP)) {
+                fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
+                eidx = i;
+                goto out;
+            }
             j = NEG(i);
             if (pfds[i].revents & POLLIN && BUF_FREE(&bufs[i]) > 0) {
                 {static int b=0; while (b);}
                 rlen = recv(pfds[i].fd, BUF_P(&bufs[i]), BUF_FREE(&bufs[i]), 0);
                 if (ap->debug)
                     fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, rlen, pfds[i].fd);
-                if (rlen <= 0)
+                if (rlen <= 0) {
+                    eidx = i;
                     goto out;
+                }
                 bufs[i].len += rlen;
                 if (BUF_FREE(&bufs[i]) == 0) {
                     pfds[i].events &= ~POLLIN;
@@ -162,6 +172,9 @@ asyncproxy_run(void *args)
     }
 
 out:
+    if (eidx != -1) {
+        assert(bufs[eidx].len == 0);
+    }
     pthread_mutex_lock(&ap->mutex);
     if (ap->state == AP_STATE_RUN) {
         ap->state = AP_STATE_QUIT;
@@ -188,7 +201,10 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
         return (NULL);
     }
     memset(ap, '\0', sizeof(struct asyncproxy));
-    ap->source = fd;
+    ap->source = dup(fd);
+    if (ap->source == -1) {
+        goto e0;
+    }
     ap->dest = dest;
     ap->portn = portn;
     ap->bindto = bindto;
@@ -199,18 +215,18 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
 
     ap->sink = socket(AF_INET, SOCK_STREAM, 0);
     if (ap->sink < 0)
-        goto e0;
+        goto e1;
 
     if (bindto != NULL) {
         struct sockaddr_in bindaddr;
 
         if (asp_pton(bindto, &bindaddr) != 1) {
             fprintf(stderr, "asyncproxy_ctor: inet_pton() failed\n");
-            goto e1;
+            goto e2;
         }
         if (bind(ap->sink, tocsa(&bindaddr), sizeof(struct sockaddr_in)) != 0) {
             fprintf(stderr, "asyncproxy_ctor: bind() failed: %s\n", strerror(errno));
-            goto e1;
+            goto e2;
         }
     }
 
@@ -218,36 +234,38 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     n = resolve(tosa(&destaddr), AF_INET, dest, pnum, 0);
     if (n != 0) {
         fprintf(stderr, "asyncproxy_ctor: bind() failed: %s\n", gai_strerror(n));
-        goto e1;
+        goto e2;
     }
     if (connect(ap->sink, tocsa(&destaddr), sizeof(struct sockaddr_in)) != 0) {
         fprintf(stderr, "asyncproxy_ctor: connect() failed: %s\n", strerror(errno));
-        goto e1;
+        goto e2;
     }
     if (asp_socket_setnonblock(ap->source) == -1) {
         fprintf(stderr, "asyncproxy_ctor: asp_socket_setnonblock(ap->source) failed: %s\n", strerror(errno));
-        goto e1;
+        goto e2;
     }
     if (asp_socket_setnonblock(ap->sink) == -1) {
         fprintf(stderr, "asyncproxy_ctor: asp_socket_setnonblock(ap->source) failed: %s\n", strerror(errno));
-        goto e1;
+        goto e2;
     }
 
     if (pthread_mutex_init(&ap->mutex, NULL) != 0) {
         fprintf(stderr, "asyncproxy_ctor: pthread_mutex_init() failed: %s\n", strerror(errno));
-        goto e1;
+        goto e2;
     }
 
     if (pthread_create(&ap->thread, NULL, asyncproxy_run, ap) != 0) {
         fprintf(stderr, "asyncproxy_ctor: pthread_create() failed: %s\n", strerror(errno));
-        goto e2;
+        goto e3;
     }
 
     return (ap);
-e2:
+e3:
     pthread_mutex_destroy(&ap->mutex);
-e1:
+e2:
     close(ap->sink);
+e1:
+    close(ap->source);
 e0:
     free(ap);
     return (NULL);
@@ -268,6 +286,7 @@ asyncproxy_dtor(void *_ap)
     pthread_join(ap->thread, NULL);
     pthread_mutex_destroy(&ap->mutex);
     close(ap->sink);
+    close(ap->source);
     free(ap);
 }
 

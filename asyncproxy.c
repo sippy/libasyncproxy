@@ -20,6 +20,8 @@
 #define AP_STATE_CEASE 1
 #define AP_STATE_QUIT  2
 
+#define DBG_LEVEL 1
+
 struct asyncproxy {
     int source;
     int sink;
@@ -103,7 +105,10 @@ asyncproxy_run(void *args)
     eidx = -1;
 
     ap = (struct asyncproxy *)args;
-    fprintf(stderr, "asyncproxy_run(%p)\n", ap);
+    if (ap->debug > 0) {
+        fprintf(stderr, "asyncproxy_run(%p)\n", ap);
+        fflush(stderr);
+    }
 
     memset(pfds, '\0', sizeof(pfds));
     memset(bufs, '\0', sizeof(bufs));
@@ -123,7 +128,9 @@ asyncproxy_run(void *args)
             continue;
         }
         for (i = 0; i < 2; i++) {
-            if (pfds[i].revents & (POLLNVAL | POLLHUP)) {
+            if (ap->debug > 0)
+                assert((pfds[i].revents & POLLNVAL) == 0);
+            if (pfds[i].revents & POLLHUP) {
                 fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
                 eidx = i;
                 goto out;
@@ -132,8 +139,10 @@ asyncproxy_run(void *args)
             if (pfds[i].revents & POLLIN && BUF_FREE(&bufs[i]) > 0) {
                 {static int b=0; while (b);}
                 rlen = recv(pfds[i].fd, BUF_P(&bufs[i]), BUF_FREE(&bufs[i]), 0);
-                if (ap->debug)
+                if (ap->debug > 1) {
                     fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, rlen, pfds[i].fd);
+                    fflush(stderr);
+                }
                 if (rlen <= 0) {
                     eidx = i;
                     goto out;
@@ -151,8 +160,10 @@ asyncproxy_run(void *args)
                 if (pfds[j].events & POLLOUT && (pfds[j].revents & POLLOUT) == 0)
                     continue;
                 rlen = send(pfds[j].fd, bufs[i].data, bufs[i].len, 0);
-                if (ap->debug)
+                if (ap->debug > 1) {
                     fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", ap, rlen, pfds[j].fd);
+                    fflush(stderr);
+                }
                 if (rlen < bufs[i].len) {
                     pfds[j].events |= POLLOUT;
                 }
@@ -172,7 +183,7 @@ asyncproxy_run(void *args)
     }
 
 out:
-    if (eidx != -1) {
+    if (ap->debug > 0 && eidx != -1) {
         assert(bufs[eidx].len == 0);
     }
     pthread_mutex_lock(&ap->mutex);
@@ -182,7 +193,10 @@ out:
     }
     pthread_mutex_unlock(&ap->mutex);
 
-    fprintf(stderr, "cease asyncproxy_run(%p)\n", ap);
+    if (ap->debug > 0) {
+        fprintf(stderr, "cease asyncproxy_run(%p)\n", ap);
+        fflush(stderr);
+    }
 
     return (NULL);
 }
@@ -208,10 +222,13 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     ap->dest = dest;
     ap->portn = portn;
     ap->bindto = bindto;
+    ap->debug = DBG_LEVEL;
 
-    fprintf(stderr, "asyncproxy_ctor(%d, %s, %u, %s) = %p\n", fd, dest,
-      portn, bindto, ap);
-    fflush(stderr);
+    if (ap->debug > 0) {
+        fprintf(stderr, "asyncproxy_ctor(%d, %s, %u, %s) = %p\n", fd, dest,
+          portn, bindto, ap);
+        fflush(stderr);
+    }
 
     ap->sink = socket(AF_INET, SOCK_STREAM, 0);
     if (ap->sink < 0)
@@ -277,8 +294,10 @@ asyncproxy_dtor(void *_ap)
     struct asyncproxy *ap;
 
     ap = (struct asyncproxy *)_ap;
-    fprintf(stderr, "asyncproxy_dtor(%p)\n", ap);
-    fflush(stderr);
+    if (ap->debug > 0) {
+        fprintf(stderr, "asyncproxy_dtor(%p)\n", ap);
+        fflush(stderr);
+    }
 
     pthread_mutex_lock(&ap->mutex);
     ap->state = AP_STATE_CEASE;
@@ -302,8 +321,10 @@ asyncproxy_isalive(void *_ap)
     rval = (ap->state == AP_STATE_RUN);
     pthread_mutex_unlock(&ap->mutex);
 
-    fprintf(stderr, "asyncproxy_isalive(%p) = %d\n", ap, rval);
-    fflush(stderr);
+    if (ap->debug > 0) {
+        fprintf(stderr, "asyncproxy_isalive(%p) = %d\n", ap, rval);
+        fflush(stderr);
+    }
 
     return (rval);
 }

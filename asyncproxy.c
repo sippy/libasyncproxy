@@ -35,6 +35,7 @@ struct asyncproxy {
     int state;
     int debug;
     struct sockaddr_in destaddr;
+    int last_seen_alive;
 };
 
 #define tosa(p) (struct sockaddr *)(void *)(p)
@@ -247,6 +248,7 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     ap->portn = portn;
     ap->bindto = bindto;
     ap->debug = DBG_LEVEL;
+    ap->last_seen_alive = -1;
 
     if (ap->debug > 0) {
         fprintf(stderr, "asyncproxy_ctor(%d, %s, %u, %s) = %p\n", fd, dest,
@@ -371,9 +373,10 @@ asyncproxy_isalive(void *_ap)
     rval = (ap->state == AP_STATE_START) || (ap->state == AP_STATE_RUN);
     pthread_mutex_unlock(&ap->mutex);
 
-    if (ap->debug > 0) {
-        fprintf(stderr, "asyncproxy_isalive(%p) = %d\n", ap, rval);
+    if (ap->debug > 0 && ap->last_seen_alive != rval) {
+        fprintf(stderr, "asyncproxy_isalive(%p) = %d->%d\n", ap, ap->last_seen_alive, rval);
         fflush(stderr);
+        ap->last_seen_alive = rval;
     }
 
     return (rval);

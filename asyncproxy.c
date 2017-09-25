@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2010-2017 Sippy Software, Inc. All rights reserved.
+ *
+ * Warning: This computer program is protected by copyright law and
+ * international treaties. Unauthorized reproduction or distribution of this
+ * program, or any portion of it, may result in severe civil and criminal
+ * penalties, and will be prosecuted under the maximum extent possible under
+ * law.
+ */
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,6 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#if defined(PYTHON_AWARE)
+#include "python2.7/Python.h"
+#endif
 
 #include "asyncproxy.h"
 
@@ -36,6 +50,20 @@ struct asyncproxy {
     int debug;
     struct sockaddr_in destaddr;
     int last_seen_alive;
+    void (*transform[2])(void *, int);
+    int needsjoin;
+};
+
+const struct {
+    int state;
+    const char *sname;
+} states[] = {
+    {AP_STATE_INIT, "INIT"},
+    {AP_STATE_START, "START"},
+    {AP_STATE_RUN, "RUN"},
+    {AP_STATE_CEASE, "CEASE"},
+    {AP_STATE_QUIT, "QUIT"},
+    {-1, NULL}
 };
 
 #define tosa(p) (struct sockaddr *)(void *)(p)
@@ -149,12 +177,26 @@ asyncproxy_run(void *args)
             break;
         }
         n = poll(pfds, 2, 100);
+        if (n < 0 && ap->debug > 0) {
+                fprintf(stderr, "asyncproxy_run: poll() failed: %s\n", strerror(errno));
+                fflush(stderr);
+        }
+        if (ap->debug > 2) {
+            fprintf(stderr, "asyncproxy_run(%p): poll() = %d\n", ap, n);
+            fflush(stderr);
+        }
         if (n <= 0) {
             continue;
         }
+
         for (i = 0; i < 2; i++) {
-            if (ap->debug > 0)
+            if (ap->debug > 0) {
+                if (ap->debug > 2) {
+                    fprintf(stderr, "asyncproxy_run(%p): pfds[%d] = {.events = %d, .revents = %d}\n", ap, i, pfds[i].events, pfds[i].revents);
+                    fflush(stderr);
+                }
                 assert((pfds[i].revents & POLLNVAL) == 0);
+            }
             if (pfds[i].revents & POLLHUP) {
                 fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
                 fflush(stderr);
@@ -172,6 +214,16 @@ asyncproxy_run(void *args)
                 if (rlen <= 0) {
                     eidx = i;
                     goto out;
+                }
+                if (ap->transform[i] != NULL) {
+#if defined(PYTHON_AWARE)
+                    PyGILState_STATE gstate;
+                    gstate = PyGILState_Ensure();
+#endif
+                    ap->transform[i](BUF_P(&bufs[i]), rlen);
+#if defined(PYTHON_AWARE)
+                    PyGILState_Release(gstate);
+#endif
                 }
                 bufs[i].len += rlen;
                 if (BUF_FREE(&bufs[i]) == 0) {
@@ -204,13 +256,18 @@ asyncproxy_run(void *args)
                 }
                 pfds[j].revents &= ~POLLOUT;
                 pfds[i].events |= POLLIN;
+            } else if (pfds[j].events & POLLOUT && pfds[j].revents & POLLOUT) {
+                pfds[j].revents &= ~POLLOUT;
+                pfds[j].events &= ~POLLOUT;
+                pfds[i].events |= POLLIN;
             }
         }
     }
 
 out:
     if (ap->debug > 0 && eidx != -1) {
-        assert(bufs[eidx].len == 0);
+        j = NEG(eidx);
+        assert(pfds[j].events & POLLOUT || bufs[eidx].len == 0);
     }
     pthread_mutex_lock(&ap->mutex);
     if (ap->state == AP_STATE_RUN) {
@@ -293,6 +350,10 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
         goto e2;
     }
 
+#if defined(PYTHON_AWARE)
+    PyEval_InitThreads();
+#endif
+
     return (ap);
 #if 0
 e3:
@@ -330,6 +391,7 @@ asyncproxy_start(void *_ap)
         pthread_mutex_unlock(&ap->mutex);
         return (-1);
     }
+    ap->needsjoin = 1;
     return (0);
 }
 
@@ -338,7 +400,6 @@ void
 asyncproxy_dtor(void *_ap)
 {
     struct asyncproxy *ap;
-    int needjoin;
 
     ap = (struct asyncproxy *)_ap;
     if (ap->debug > 0) {
@@ -346,15 +407,11 @@ asyncproxy_dtor(void *_ap)
         fflush(stderr);
     }
 
-    needjoin = 1;
     pthread_mutex_lock(&ap->mutex);
-    if (ap->state == AP_STATE_INIT)
-        needjoin = 0;
     if (ap->state == AP_STATE_START || ap->state == AP_STATE_RUN)
         ap->state = AP_STATE_CEASE;
     pthread_mutex_unlock(&ap->mutex);
-    if (needjoin)
-        pthread_join(ap->thread, NULL);
+    asyncproxy_join(_ap);
     pthread_mutex_destroy(&ap->mutex);
     close(ap->sink);
     close(ap->source);
@@ -380,4 +437,54 @@ asyncproxy_isalive(void *_ap)
     }
 
     return (rval);
+}
+
+void
+asyncproxy_set_i2o(void *_ap, void (*i2ofp)(void *, int))
+{
+    struct asyncproxy *ap;
+
+    ap = (struct asyncproxy *)_ap;
+
+    pthread_mutex_lock(&ap->mutex);
+    ap->transform[0] = i2ofp;
+    pthread_mutex_unlock(&ap->mutex);
+}
+
+void
+asyncproxy_set_o2i(void *_ap, void (*o2ifp)(void *, int))
+{
+    struct asyncproxy *ap;
+
+    ap = (struct asyncproxy *)_ap;
+
+    pthread_mutex_lock(&ap->mutex);
+    ap->transform[1] = o2ifp;
+    pthread_mutex_unlock(&ap->mutex);
+}
+
+void
+asyncproxy_join(void *_ap)
+{
+    struct asyncproxy *ap;
+
+    ap = (struct asyncproxy *)_ap;
+    if (!ap->needsjoin) {
+        return;
+    }
+    pthread_join(ap->thread, NULL);
+    ap->needsjoin = 0;
+}
+
+const char *
+asyncproxy_describe(void *_ap)
+{
+    struct asyncproxy *ap;
+    int state;
+
+    ap = (struct asyncproxy *)_ap;
+    pthread_mutex_lock(&ap->mutex);
+    state = ap->state;
+    pthread_mutex_unlock(&ap->mutex);
+    return (states[state].sname);
 }

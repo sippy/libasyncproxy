@@ -4,7 +4,7 @@ LIBTHREAD?= pthread
 PREFIX?= /usr/local
 LIBDIR= ${PREFIX}/lib
 
-CFLAGS=	-g -O0
+CFLAGS=	-g3 -O0
 
 SRCS=		asyncproxy.c asyncproxy.h
 

@@ -82,7 +82,7 @@ if __name__ == '__main__':
     from time import sleep
     from socket import socketpair, AF_INET
 
-    getnull = lambda: (open('/dev/null', 'rw'), open('/dev/null', 'rw'))
+    getnull = lambda: (open('/dev/null', 'r+'), open('/dev/null', 'r+'))
     getrandom = lambda: (open('/dev/urandom', 'r'), open('/dev/urandom', 'r'))
 
     for source in (getnull(), getrandom(), socketpair()):

@@ -52,6 +52,7 @@ struct asyncproxy {
     int last_seen_alive;
     void (*transform[2])(void *, int);
     int needsjoin;
+    char addrbuf[INET6_ADDRSTRLEN];
 };
 
 const struct {
@@ -66,8 +67,9 @@ const struct {
     {-1, NULL}
 };
 
-#define tosa(p) (struct sockaddr *)(void *)(p)
-#define tocsa(p) (const struct sockaddr *)(void *)(p)
+#define tov(p) (void *)(p)
+#define tosa(p) (struct sockaddr *)tov(p)
+#define tocsa(p) (const struct sockaddr *)tov(p)
 
 static int
 asp_pton(const char *saddr, struct sockaddr_in *addr)
@@ -487,4 +489,24 @@ asyncproxy_describe(void *_ap)
     state = ap->state;
     pthread_mutex_unlock(&ap->mutex);
     return (states[state].sname);
+}
+
+const char *
+asyncproxy_getsockname(void *_ap, unsigned short *portn)
+{
+    struct asyncproxy *ap;
+    struct sockaddr_in sn;
+    socklen_t snlen;
+
+    ap = (struct asyncproxy *)_ap;
+    snlen = sizeof(struct sockaddr_in);
+    if (getsockname(ap->sink, tov(&sn), &snlen) < 0)
+        return (NULL);
+    if (inet_ntop(AF_INET, &sn.sin_addr, ap->addrbuf, sizeof(ap->addrbuf)) == NULL)
+        return (NULL);
+
+    if (portn != NULL) {
+        *portn = ntohs(sn.sin_port);
+    }
+    return (ap->addrbuf);
 }

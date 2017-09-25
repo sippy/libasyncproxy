@@ -1,6 +1,13 @@
-import threading
+# Copyright (c) 2017 Sippy Software, Inc. All rights reserved.
+#
+# Warning: This computer program is protected by copyright law and
+# international treaties. Unauthorized reproduction or distribution of this
+# program, or any portion of it, may result in severe civil and criminal
+# penalties, and will be prosecuted under the maximum extent possible under
+# law.
 
-from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE
+from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE, \
+  POINTER, pointer
 
 _asp_data_cb = CFUNCTYPE(None, c_void_p, c_int)
 
@@ -17,6 +24,8 @@ _asp.asyncproxy_set_o2i.argtypes = [c_void_p, _asp_data_cb]
 _asp.asyncproxy_join.argtypes = [c_void_p,]
 _asp.asyncproxy_describe.argtypes = [c_void_p,]
 _asp.asyncproxy_describe.restype = c_char_p
+_asp.asyncproxy_getsockname.argtypes = [c_void_p, POINTER(c_ushort)]
+_asp.asyncproxy_getsockname.restype = c_char_p
 
 class AsyncProxy(object):
     _hndl = None
@@ -62,6 +71,13 @@ class AsyncProxy(object):
         d = self.__asp.asyncproxy_describe(self._hndl)
         return d
 
+    def getsockname(self):
+        portnum = c_ushort()
+        a = self.__asp.asyncproxy_getsockname(self._hndl, pointer(portnum))
+        if not bool(a):
+            raise Exception('asyncproxy_getsockname() failed')
+        return (a, portnum.value)
+
 if __name__ == '__main__':
     from time import sleep
     from socket import socketpair, AF_INET
@@ -73,7 +89,7 @@ if __name__ == '__main__':
         for sport in 80,:
             #source = socketpair()
             a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, '192.168.23.52')
-            print(a.isAlive())
+            print(a.isAlive(), a.getsockname())
             a.start()
             print(a.isAlive())
             b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, '192.168.23.52')

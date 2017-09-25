@@ -88,14 +88,21 @@ if __name__ == '__main__':
     getnull = lambda: (open('/dev/null', 'r+'), open('/dev/null', 'r+'))
     getrandom = lambda: (open('/dev/urandom', 'r'), open('/dev/urandom', 'r'))
 
+    dn = open('/dev/null', 'r+')
+    a = AsyncProxy(dn.fileno(), 'gmail-smtp-in.l.google.com', 25, None)
+    a.start()
+    while a.getsockname()[1] == 0:
+        print(a.isAlive(), a.getsockname())
+    lclsrc = a.getsockname()[0]
+
     for source in (getnull(), getrandom(), socketpair()):
         for sport in 80,:
             #source = socketpair()
-            a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, '192.168.23.52')
+            a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, lclsrc)
             print(a.isAlive(), a.getsockname())
             a.start()
             print(a.isAlive())
-            b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, '192.168.23.52')
+            b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, lclsrc)
             print(b.isAlive())
             b.start()
             print(b.isAlive())

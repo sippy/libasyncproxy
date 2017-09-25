@@ -96,7 +96,7 @@ if __name__ == '__main__':
     lclsrc = a.getsockname()[0]
 
     for source in (getnull(), getrandom(), socketpair()):
-        for sport in 80,:
+        for sport in 80, 12345:
             #source = socketpair()
             a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, lclsrc)
             print(a.isAlive(), a.getsockname())

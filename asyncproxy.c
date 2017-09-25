@@ -77,7 +77,9 @@ asp_pton(const char *saddr, struct sockaddr_in *addr)
 
     memset(addr, '\0', sizeof(struct sockaddr_in));
     addr->sin_family = AF_INET;
+#if 0
     addr->sin_len = sizeof(struct sockaddr_in);
+#endif
     if (inet_pton(AF_INET, saddr, &addr->sin_addr) != 1) {
         return (-1);
     }

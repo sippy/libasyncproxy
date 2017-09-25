@@ -34,7 +34,7 @@ class AsyncProxy(object):
     out2in = None
 
     def __init__(self, fd, dest, portn, bindto):
-        self._hndl = _asp.asyncproxy_ctor(fd, dest, portn, bindto)
+        self._hndl = _asp.asyncproxy_ctor(fd, c_char_p(dest), portn, c_char_p(bindto))
         if not bool(self._hndl):
             raise Exception('asyncproxy_ctor() failed')
         self.__asp = _asp

@@ -79,7 +79,7 @@ class AsyncProxy(object):
         a = self.__asp.asyncproxy_getsockname(self._hndl, pointer(portnum))
         if not bool(a):
             raise Exception('asyncproxy_getsockname() failed')
-        return (a, portnum.value)
+        return (a.decode(), portnum.value)
 
 if __name__ == '__main__':
     from time import sleep

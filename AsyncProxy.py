@@ -36,7 +36,7 @@ class AsyncProxy(object):
     def __init__(self, fd, dest, portn, bindto):
         dest = c_char_p(bytes(dest.encode()))
         if bindto != None:
-            bindto = c_char_p(bytes(dest.encode()))
+            bindto = c_char_p(bytes(bindto.encode()))
         self._hndl = _asp.asyncproxy_ctor(fd, dest, portn, bindto)
         if not bool(self._hndl):
             raise Exception('asyncproxy_ctor() failed')

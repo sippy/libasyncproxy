@@ -180,7 +180,7 @@ asyncproxy_run(void *args)
             }
             break;
         }
-        n = poll(pfds, 2, 100);
+        n = poll(pfds, 2, INFTIM);
         if (n < 0 && ap->debug > 0) {
                 fprintf(stderr, "asyncproxy_run: poll() failed: %s\n", strerror(errno));
                 fflush(stderr);
@@ -476,6 +476,7 @@ asyncproxy_join(void *_ap)
     if (!ap->needsjoin) {
         return;
     }
+    shutdown(ap->sink, SHUT_RDWR);
     pthread_join(ap->thread, NULL);
     ap->needsjoin = 0;
 }

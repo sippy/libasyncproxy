@@ -14,6 +14,17 @@ MK_PROFILE?=	no
 
 WARNS?=         4
 
+TSTAMP!=	date "+%Y%m%d%H%M%S"
+
+PKGNAME=	lib${LIB}
+PKGFILES=	${SRCS} Makefile AsyncProxy.py
+
+distribution: clean
+	tar cvfy /tmp/${PKGNAME}-sippy-${TSTAMP}.tbz2 ${PKGFILES}
+	scp /tmp/${PKGNAME}-sippy-${TSTAMP}.tbz2 sobomax@download.sippysoft.com:/usr/local/www/data/${PKGNAME}/
+	git tag rel.${TSTAMP}
+	git push origin rel.${TSTAMP}
+
 #CLEANFILES+=    test
 #
 #test: lib${LIB}.a test.c Makefile

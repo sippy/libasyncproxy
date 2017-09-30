@@ -38,6 +38,10 @@
 
 #define DBG_LEVEL 1
 
+#if !defined(INFTIM)
+# define INFTIM (-1)
+#endif
+
 struct asyncproxy {
     int source;
     int sink;

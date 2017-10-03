@@ -18,3 +18,4 @@ void asyncproxy_join(void *);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);
 const char * asyncproxy_getsockname(void *, unsigned short *);
+void asyncproxy_setdebug(int);

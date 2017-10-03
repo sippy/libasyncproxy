@@ -26,6 +26,10 @@ _asp.asyncproxy_describe.argtypes = [c_void_p,]
 _asp.asyncproxy_describe.restype = c_char_p
 _asp.asyncproxy_getsockname.argtypes = [c_void_p, POINTER(c_ushort)]
 _asp.asyncproxy_getsockname.restype = c_char_p
+_asp.asyncproxy_setdebug.argtypes = [c_int,]
+
+def setdebug(level):
+    _asp.asyncproxy_setdebug(level)
 
 class AsyncProxy(object):
     _hndl = None
@@ -87,6 +91,8 @@ if __name__ == '__main__':
 
     getnull = lambda: (open('/dev/null', 'r+'), open('/dev/null', 'r+'))
     getrandom = lambda: (open('/dev/urandom', 'r'), open('/dev/urandom', 'r'))
+
+    setdebug(0)
 
     dn = open('/dev/null', 'r+')
     dn = socketpair()

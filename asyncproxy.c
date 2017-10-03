@@ -36,7 +36,9 @@
 #define AP_STATE_CEASE 3
 #define AP_STATE_QUIT  4
 
-#define DBG_LEVEL 1
+#define DBG_LEVEL 0
+
+static int dbg_level = 1;
 
 #if !defined(INFTIM)
 # define INFTIM (-1)
@@ -163,8 +165,10 @@ asyncproxy_run(void *args)
 
     rval = connect(ap->sink, tocsa(&ap->destaddr), sizeof(struct sockaddr_in));
     if (rval != 0) {
-        fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink, rval);
-        fflush(stderr);
+        if (ap->debug > 2) {
+            fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink, rval);
+            fflush(stderr);
+        }
         if (errno != EINPROGRESS) {
             fprintf(stderr, "asyncproxy_run: connect() failed: %s\n", strerror(errno));
             fflush(stderr);
@@ -206,8 +210,10 @@ asyncproxy_run(void *args)
                 assert((pfds[i].revents & POLLNVAL) == 0);
             }
             if (pfds[i].revents & POLLHUP) {
-                fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
-                fflush(stderr);
+                if (ap->debug > 1) {
+                    fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
+                    fflush(stderr);
+                }
                 eidx = i;
                 goto out;
             }
@@ -312,7 +318,7 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     ap->dest = dest;
     ap->portn = portn;
     ap->bindto = bindto;
-    ap->debug = DBG_LEVEL;
+    ap->debug = dbg_level;
     ap->last_seen_alive = -1;
 
     if (ap->debug > 0) {
@@ -516,4 +522,11 @@ asyncproxy_getsockname(void *_ap, unsigned short *portn)
         *portn = ntohs(sn.sin_port);
     }
     return (ap->addrbuf);
+}
+
+void
+asyncproxy_setdebug(int new_level)
+{
+
+    dbg_level = new_level;
 }

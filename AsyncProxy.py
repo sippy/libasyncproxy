@@ -92,7 +92,7 @@ if __name__ == '__main__':
     getnull = lambda: (open('/dev/null', 'r+'), open('/dev/null', 'r+'))
     getrandom = lambda: (open('/dev/urandom', 'r'), open('/dev/urandom', 'r'))
 
-    setdebug(0)
+    setdebug(2)
 
     dn = open('/dev/null', 'r+')
     dn = socketpair()

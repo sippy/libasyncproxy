@@ -7,8 +7,8 @@ PREFIX?= /usr/local
 LIBDIR= ${PREFIX}/lib
 INCLUDEDIR= ${PREFIX}/include
 
-SRCS_C= asyncproxy.c
-SRCS_H= asyncproxy.h
+SRCS_C= asyncproxy.c asp_sock.c
+SRCS_H= asyncproxy.h asp_sock.h
 
 CFLAGS?= -O2 -pipe
 
@@ -34,4 +34,4 @@ lib${LIB}.so: lib${LIB}.so.0
 	$(CC) -fpic -DPIC -c $(CFLAGS) $< -o $@
 
 clean:
-	rm -f lib${LIB}.a lib${LIB}.so.0 $(OBJS) $(OBJS_PIC)
+	rm -f lib${LIB}.a lib${LIB}.so.0 lib${LIB}.so $(OBJS) $(OBJS_PIC)

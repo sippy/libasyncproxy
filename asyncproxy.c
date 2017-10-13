@@ -29,6 +29,7 @@
 #endif
 
 #include "asyncproxy.h"
+#include "asp_iostats.h"
 #include "asp_sock.h"
 
 #define AP_STATE_INIT  0

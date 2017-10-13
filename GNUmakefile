@@ -8,7 +8,7 @@ LIBDIR= ${PREFIX}/lib
 INCLUDEDIR= ${PREFIX}/include
 
 SRCS_C= asyncproxy.c asp_sock.c
-SRCS_H= asyncproxy.h asp_sock.h
+SRCS_H= asyncproxy.h asp_sock.h asp_iostats.h
 
 CFLAGS?= -O2 -pipe
 

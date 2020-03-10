@@ -8,7 +8,7 @@
 
 import sys
 from threading import Thread
-import socket, os
+import socket, os, select
 import traceback
 from time import sleep, strftime
 
@@ -35,12 +35,25 @@ class TCPProxy(Thread):
         if hasattr(socket, 'SO_REUSEPORT'):
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         self.sock.bind((bindhost, port))
-        self.sock.listen(50)
+        self.sock.listen(500)
         self.forwarders = []
         self.setDaemon(True)
 
     def run(self):
+        poller = select.poll()
+        READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
+        poller.register(self.sock.fileno(), READ_ONLY)
         while 1:
+            events = poller.poll(250)
+            if self.dead:
+                break
+            if len(events) == 0:
+                continue
+            fd, flag = events[0]
+            if flag & select.POLLHUP:
+                break
+            if not flag & (select.POLLIN | select.POLLPRI):
+                continue
             e = None
             try:
                 #print 'self.sock.accept()'

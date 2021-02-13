@@ -13,9 +13,9 @@ import traceback
 from time import sleep, strftime
 
 try:
-    from ForwarderFast import ForwarderFast as Forwarder
+    from .ForwarderFast import ForwarderFast as Forwarder
 except:
-    from Forwarder import Forwarder
+    from .Forwarder import Forwarder
 
 class TCPProxy(Thread):
     dead = False
@@ -26,7 +26,7 @@ class TCPProxy(Thread):
     def __init__(self, port, newhost, newport, bindhost = '127.0.0.1', logger = None):
         self.my_pid = os.getpid()
         Thread.__init__(self)
-        #print 'Redirecting: %s:%s -> %s:%s' % ( bindhost, port, newhost, newport )
+        #print('Redirecting: %s:%s -> %s:%s' % ( bindhost, port, newhost, newport ))
         self.newhost = newhost
         self.newport = newport
         self.logger = logger
@@ -56,9 +56,9 @@ class TCPProxy(Thread):
                 continue
             e = None
             try:
-                #print 'self.sock.accept()'
+                #print('self.sock.accept()')
                 newsock, address = self.sock.accept()
-                #print newsock, address
+                #print(newsock, address)
                 if self.dead:
                     self.log('ignore connection attempt from IP %s during shutdown' % address[0])
                     newsock.shutdown(socket.SHUT_RDWR)
@@ -69,10 +69,10 @@ class TCPProxy(Thread):
                     newsock.close()
                     self.log('connection attempt from the unknown IP %s has been rejected' % address[0])
                     continue
-            except socket.error, e:
+            except socket.error as e:
                 if self.dead:
                     return
-                errno, string = e
+                errno, string = e.errno, e.strerror
                 if errno == 54:
                     # Ignore 'Connection reset by peer'
                     self.log("Ignoring 'Connection reset by peer'")
@@ -95,7 +95,7 @@ class TCPProxy(Thread):
                 fwd = Forwarder(newsock, (self.newhost, self.newport), self.bindhost_out, logger = self.logger)
                 self.forwarders.append(fwd)
                 fwd.start()
-            except Exception, e:
+            except Exception as e:
                 if self.dead:
                     return
             if e != None:
@@ -110,16 +110,16 @@ class TCPProxy(Thread):
                 if fwd.isAlive():
                     forwarders.append(fwd)
                 else:
-                    #print 'joinning forwarder:', fwd.describe()
+                    #print('joinning forwarder:', fwd.describe())
                     fwd.join()
-                    #print 'joinning forwarder done:', fwd.describe()
+                    #print('joinning forwarder done:', fwd.describe())
             self.forwarders = forwarders
 
     def shutdown(self):
         self.dead = True
         while len(self.forwarders) > 0:
             forwarder = self.forwarders.pop()
-            #print 'shutting down forwarder:', forwarder.describe()
+            #print('shutting down forwarder:', forwarder.describe())
             if forwarder.isAlive():
                 forwarder.shutdown()
             forwarder.join()
@@ -132,6 +132,6 @@ class TCPProxy(Thread):
         if self.logger != None:
             self.logger.log(msg, flush)
         else:
-            print "%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg)
+            print("%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg))
             if flush:
                 sys.stdout.flush()

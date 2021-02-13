@@ -136,20 +136,20 @@ class Forwarder(Thread):
                             except:
                                 buf_down = ''
                         #print self, 'sent %d bytes' % size
-        except socket.timeout, e:
+        except socket.timeout as e:
             if self.dead:
                 return
             self.log('timed out when processing data in state %s' % self.getstate())
-        except select.error, e:
+        except select.error as e:
             if self.dead:
                 return
-            errno, string = e
+            errno, string = e.errno, e.strerror
             if errno == 4:
                 # Ignoring 'Interrupted system call'
                 pass
             else:
                 self.log("got select.error exception: %s" % str(e))
-        except Exception, e:
+        except Exception as e:
             if self.dead:
                 return
             self.log('unhandled exception when processing data in state %s' % self.getstate())

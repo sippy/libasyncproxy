@@ -32,8 +32,8 @@ class Forwarder(Thread):
         self.sink_addr = sink_addr
         self.bindhost_out = bindhost_out
         self.logger = logger
-        #print 'Creating new pipe thread  %s ( %s -> %s )' % \
-        #    ( self, source.getpeername(), sink_addr[0] )
+        #print('Creating new pipe thread  %s ( %s -> %s )' % \
+        #    ( self, source.getpeername(), sink_addr[0] ))
         self.setDaemon(True)
 
     def setstate(self, s):
@@ -104,7 +104,7 @@ class Forwarder(Thread):
                                 data = self.source.recv(1024 * 8)
                             except:
                                 data = ''
-                        #print self, 'received %d bytes' % len(data)
+                        #print(self, 'received %d bytes' % len(data))
                         if not data:
                             if fd == self.source.fileno():
                                 buf_down = ''
@@ -135,7 +135,7 @@ class Forwarder(Thread):
                                 buf_down = buf_down[size:]
                             except:
                                 buf_down = ''
-                        #print self, 'sent %d bytes' % size
+                        #print(self, 'sent %d bytes' % size)
         except socket.timeout as e:
             if self.dead:
                 return
@@ -182,6 +182,6 @@ class Forwarder(Thread):
         if self.logger != None:
             self.logger.log(msg, flush)
         else:
-            print "%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg)
+            print("%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg))
             if flush:
                 sys.stdout.flush()

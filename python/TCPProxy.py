@@ -11,6 +11,7 @@ from threading import Thread
 import socket, os, select
 import traceback
 from time import sleep, strftime
+from errno import EADDRINUSE
 
 try:
     from .ForwarderFast import ForwarderFast as Forwarder
@@ -30,11 +31,22 @@ class TCPProxy(Thread):
         self.newhost = newhost
         self.newport = newport
         self.logger = logger
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if hasattr(socket, 'SO_REUSEPORT'):
-            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.sock.bind((bindhost, port))
-        self.sock.listen(500)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        bindaddr = (bindhost, port)
+        try:
+            sock.bind(bindaddr)
+        except OSError as oex:
+            if oex.errno != EADDRINUSE:
+                raise oex
+            try:
+                sock.connect(bindaddr)
+                raise oex
+            except ConnectionRefusedError:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                sock.bind(bindaddr)
+        sock.listen(500)
+        self.sock = sock
         self.forwarders = []
         self.setDaemon(True)
 

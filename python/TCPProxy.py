@@ -134,11 +134,6 @@ class TCPProxy(Thread):
             if forwarder.isAlive():
                 forwarder.shutdown()
             forwarder.join()
-        try:
-            self.sock.shutdown(socket.SHUT_RDWR)
-        except OSError as ex:
-            if ex.errno != ENOTCONN:
-                raise ex
         self.sock.close()
         self.join()
 

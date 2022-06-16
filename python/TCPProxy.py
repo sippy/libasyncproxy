@@ -11,7 +11,7 @@ from threading import Thread
 import socket, os, select
 import traceback
 from time import sleep, strftime
-from errno import EADDRINUSE
+from errno import EADDRINUSE, ENOTCONN
 
 try:
     from .ForwarderFast import ForwarderFast as Forwarder
@@ -134,7 +134,11 @@ class TCPProxy(Thread):
             if forwarder.isAlive():
                 forwarder.shutdown()
             forwarder.join()
-        self.sock.shutdown(socket.SHUT_RDWR)
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError as ex:
+            if ex.errno != ENOTCONN:
+                raise ex
         self.sock.close()
         self.join()
 

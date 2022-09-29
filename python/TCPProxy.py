@@ -11,7 +11,7 @@ from threading import Thread
 import socket, os, select
 import traceback
 from time import sleep, strftime
-from errno import EADDRINUSE, ENOTCONN
+from errno import EADDRINUSE, ENOTCONN, ECONNRESET, EINTR
 
 try:
     from .ForwarderFast import ForwarderFast as Forwarder
@@ -54,7 +54,7 @@ class TCPProxy(Thread):
         poller = select.poll()
         READ_ONLY = select.POLLIN | select.POLLPRI | select.POLLHUP | select.POLLERR
         poller.register(self.sock.fileno(), READ_ONLY)
-        while 1:
+        while True:
             events = poller.poll(250)
             if self.dead:
                 break
@@ -65,7 +65,6 @@ class TCPProxy(Thread):
                 break
             if not flag & (select.POLLIN | select.POLLPRI):
                 continue
-            e = None
             try:
                 #print('self.sock.accept()')
                 newsock, address = self.sock.accept()
@@ -84,22 +83,15 @@ class TCPProxy(Thread):
                 if self.dead:
                     return
                 errno, string = e.errno, e.strerror
-                if errno == 54:
+                if errno == ECONNRESET:
                     # Ignore 'Connection reset by peer'
                     self.log("Ignoring 'Connection reset by peer'")
                     continue
-                elif errno == 4:
+                elif errno == EINTR:
                     # Ignore 'Interrupted system call'
                     self.log("Ignoring 'Interrupted system call'")
                     continue
                 self.log("got socket.error exception: %s" % str(e))
-                continue
-
-            if e != None:
-                self.log('-' * 70)
-                self.log(traceback.format_exc())
-                self.log('-' * 70, True)
-                sleep(0.01)
                 continue
 
             try:
@@ -109,13 +101,13 @@ class TCPProxy(Thread):
             except Exception as e:
                 if self.dead:
                     return
-            if e != None:
                 self.log('setting up redirection to %s:%s failed' % (self.newhost, self.newport))
                 self.log('-' * 70)
                 self.log(traceback.format_exc())
                 self.log('-' * 70, True)
                 sleep(0.01)
                 continue
+
             forwarders = []
             for fwd in self.forwarders:
                 if fwd.isAlive():

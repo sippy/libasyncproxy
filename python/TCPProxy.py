@@ -21,6 +21,7 @@ except:
 class TCPProxy(Thread):
     dead = False
     forwarders = None
+    allowed_ips: tuple
     allowed_ips = None
     bindhost_out = None
 

@@ -75,7 +75,7 @@ class TCPProxy(Thread):
                     newsock.shutdown(socket.SHUT_RDWR)
                     newsock.close()
                     continue
-                if self.allowed_ips != None and address[0] not in self.allowed_ips:
+                if self.allowed_ips is not None and address[0] not in self.allowed_ips: # pylint: disable=unsupported-membership-test
                     newsock.shutdown(socket.SHUT_RDWR)
                     newsock.close()
                     self.log('connection attempt from the unknown IP %s has been rejected' % address[0])

@@ -56,15 +56,16 @@ class Forwarder(Thread):
     def run(self):
         try:
             self.setstate('self.sink = socket.socket()')
-            self.sink = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sink = socket.socket(self.sink_addr[1], socket.SOCK_STREAM)
             if self.bindhost_out != None and self.bindhost_out != '127.0.0.1':
                 self.setstate('self.sink.bind(%s)' % str(self.bindhost_out))
                 self.sink.bind((self.bindhost_out, 0))
             self.sink.settimeout(10)
             self.setstate('%s -> self.sink.connect(%s)' % (self.getstate(), str(self.sink_addr)))
-            self.sink.connect(self.sink_addr)
+            self.sink.connect(self.sink_addr[0])
             self.setstate('self.sink.getsockname()')
-            self.port2 = self.sink.getsockname()[1]
+            sn = self.sink.getsockname()
+            self.port2 = sn[1] if (self.sink_addr[1] != socket.AF_UNIX) else 'AF_UNIX'
             self.setstate('flags = fcntl.fcntl(self.sink)')
             flags = fcntl.fcntl(self.sink, fcntl.F_GETFL, 0)
             flags = flags | os.O_NONBLOCK
@@ -74,8 +75,8 @@ class Forwarder(Thread):
             flags = flags | os.O_NONBLOCK
             self.setstate('fcntl.fcntl(self.source, fcntl.F_SETFL, flags)')
             fcntl.fcntl(self.source, fcntl.F_SETFL, flags)
-            buf_up = ''
-            buf_down = ''
+            buf_up = b''
+            buf_down = b''
             pollobj = select.poll()
             pollobj.register(self.sink.fileno(), select.POLLIN)
             pollobj.register(self.source.fileno(), select.POLLIN)
@@ -97,19 +98,19 @@ class Forwarder(Thread):
                             try:
                                 data = self.sink.recv(1024 * 8)
                             except:
-                                data = ''
+                                data = b''
                         else:
                             self.setstate('self.source.recv()')
                             try:
                                 data = self.source.recv(1024 * 8)
                             except:
-                                data = ''
+                                data = b''
                         #print(self, 'received %d bytes' % len(data))
                         if not data:
                             if fd == self.source.fileno():
-                                buf_down = ''
+                                buf_down = b''
                             else:
-                                buf_up = ''
+                                buf_up = b''
                             if len(buf_up) == 0 and len(buf_down) == 0:
                                 self.setstate('self.shutdown(autoshutdown = True) line 80')
                                 self.shutdown()
@@ -127,14 +128,14 @@ class Forwarder(Thread):
                                 size = self.sink.send(buf_up)
                                 buf_up = buf_up[size:]
                             except:
-                                buf_up = ''
+                                buf_up = b''
                         else:
                             self.setstate('size = self.source.send(buf_down)')
                             try:
                                 size = self.source.send(buf_down)
                                 buf_down = buf_down[size:]
                             except:
-                                buf_down = ''
+                                buf_down = b''
                         #print(self, 'sent %d bytes' % size)
         except socket.timeout as e:
             if self.dead:
@@ -184,3 +185,6 @@ class Forwarder(Thread):
             print("%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg))
             if flush:
                 sys.stdout.flush()
+
+    def isAlive(self):
+        return self.is_alive()

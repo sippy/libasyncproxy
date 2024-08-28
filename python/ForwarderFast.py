@@ -18,7 +18,8 @@ class ForwarderFast(AsyncProxy):
     state = '__init__'
 
     def __init__(self, source, sink_addr, bindhost_out = None, logger = None):
-        AsyncProxy.__init__(self, source.fileno(), sink_addr[0], sink_addr[1], bindhost_out)
+        addr, port = (sink_addr[0], None) if (sink_addr[1] == socket.AF_UNIX) else sink_addr[0]
+        AsyncProxy.__init__(self, source.fileno(), addr, port, sink_addr[1], bindhost_out)
         self.source = source
         self.port1 = source.getpeername()[1]
 

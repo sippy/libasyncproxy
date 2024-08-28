@@ -14,7 +14,12 @@ from time import sleep, strftime
 from errno import EADDRINUSE, ECONNRESET, EINTR
 
 try:
-    from .ForwarderFast import ForwarderFast as Forwarder
+    from .ForwarderFast import ForwarderFast as _Forwarder
+    from .Forwarder import Forwarder as _Forwarder_safe
+    def Forwarder(*a, **kwa):
+        try: return _Forwarder(*a, **kwa)
+        except TypeError:
+            return _Forwarder_safe(*a, **kwa)
 except:
     from .Forwarder import Forwarder
 
@@ -26,12 +31,15 @@ class TCPProxy(Thread):
     allowed_ips = None
     bindhost_out = None
 
-    def __init__(self, port, newhost, newport, bindhost = '127.0.0.1', logger = None):
+    def __init__(self, port, newhost, newport = None, bindhost = '127.0.0.1', logger = None, newaf = None):
+        if newaf is None:
+            newaf = socket.AF_INET if (newport is not None) else socket.AF_UNIX
         self.my_pid = os.getpid()
         Thread.__init__(self)
         #print('Redirecting: %s:%s -> %s:%s' % ( bindhost, port, newhost, newport ))
         self.newhost = newhost
         self.newport = newport
+        self.newaf = newaf
         self.logger = logger
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         bindaddr = (bindhost, port)
@@ -48,6 +56,7 @@ class TCPProxy(Thread):
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
                 sock.bind(bindaddr)
         sock.listen(500)
+        self.port = port if (port != 0) else sock.getsockname()[1]
         self.sock = sock
         self.forwarders = []
 
@@ -94,14 +103,16 @@ class TCPProxy(Thread):
                 self.log("got socket.error exception: %s" % str(e))
                 continue
 
+            daddr = (self.newhost, self.newport) if (self.newaf != socket.AF_UNIX) else self.newhost
             try:
-                fwd = Forwarder(newsock, (self.newhost, self.newport), self.bindhost_out, logger = self.logger)
+                fwd = Forwarder(newsock, (daddr, self.newaf), self.bindhost_out, logger = self.logger)
                 self.forwarders.append(fwd)
                 fwd.start()
             except Exception:
                 if self.dead:
                     return
-                self.log('setting up redirection to %s:%s failed' % (self.newhost, self.newport))
+                dst = f'{self.newhost}:{self.newport}' if (self.newaf != socket.AF_UNIX) else f'"{self.newhost}"'
+                self.log(f'setting up redirection to {dst} failed')
                 self.log('-' * 70)
                 self.log(traceback.format_exc())
                 self.log('-' * 70, True)

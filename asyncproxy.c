@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2017 Sippy Software, Inc. All rights reserved.
+ * Copyright (c) 2010-2024 Sippy Software, Inc. All rights reserved.
  *
  * Warning: This computer program is protected by copyright law and
  * international treaties. Unauthorized reproduction or distribution of this
@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/un.h>
 #include <arpa/inet.h>
 
 #include <assert.h>
@@ -53,16 +54,25 @@ struct asyncproxy {
     struct asp_sock sink;
     const char *dest;
     unsigned short portn;
+    int af;
     const char *bindto;
     pthread_t thread;
     pthread_mutex_t mutex;
     int state;
     int debug;
-    struct sockaddr_in destaddr;
+    struct {
+        union {
+            struct sockaddr_in ip;
+            struct sockaddr_un un;
+            struct sockaddr_in6 ip6;
+            struct sockaddr sa;
+        };
+        socklen_t alen;
+    } destaddr;
     int last_seen_alive;
     void (*transform[2])(void *, int);
     int needsjoin;
-    char addrbuf[INET6_ADDRSTRLEN];
+    char addrbuf[FILENAME_MAX];
 };
 
 const struct {
@@ -188,7 +198,7 @@ asyncproxy_run(void *args)
     pfds[1].events = POLLIN;
     asps[1] = &ap->sink;
 
-    rval = connect(ap->sink.fd, tocsa(&ap->destaddr), sizeof(struct sockaddr_in));
+    rval = connect(ap->sink.fd, &ap->destaddr.sa, ap->destaddr.alen);
     if (rval != 0) {
         if (ap->debug > 2) {
             fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink.fd, rval);
@@ -326,7 +336,7 @@ out:
 }
 
 void *
-asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
+asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
   const char *bindto)
 {
     struct asyncproxy *ap;
@@ -334,8 +344,8 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     int n, fd1;
 
     if (dbg_level > 0) {
-        fprintf(stderr, "asyncproxy_ctor(%d, %s, %u, %s) = %p\n", fd, dest,
-          portn, bindto, ap);
+        fprintf(stderr, "asyncproxy_ctor(%d, %s, %d, %u, %s) = %p\n", fd, dest,
+          portn, af, bindto, ap);
         fflush(stderr);
     }
 
@@ -354,11 +364,12 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     }
     ap->dest = dest;
     ap->portn = portn;
+    ap->af = af;
     ap->bindto = bindto;
     ap->debug = dbg_level;
     ap->last_seen_alive = -1;
 
-    fd1 = socket(AF_INET, SOCK_STREAM, 0);
+    fd1 = socket(af, SOCK_STREAM, 0);
     if (fd1 < 0)
         goto e1;
     if (asp_sock_ctor(&ap->sink, fd1) != 0) {
@@ -367,6 +378,7 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
     }
 
     if (bindto != NULL) {
+        assert (af != AF_UNIX);
         struct sockaddr_in bindaddr;
 
         if (asp_pton(bindto, &bindaddr) != 1) {
@@ -379,11 +391,27 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
         }
     }
 
-    snprintf(pnum, sizeof(pnum), "%u", portn);
-    n = resolve(tosa(&ap->destaddr), AF_INET, dest, pnum, 0);
-    if (n != 0) {
-        fprintf(stderr, "asyncproxy_ctor: resolve() failed: %s\n", gai_strerror(n));
-        goto e3;
+    if (af != AF_UNIX) {
+        snprintf(pnum, sizeof(pnum), "%u", portn);
+        n = resolve(&ap->destaddr.sa, af, dest, pnum, 0);
+        if (n != 0) {
+            fprintf(stderr, "asyncproxy_ctor: resolve() failed: %s\n", gai_strerror(n));
+            goto e3;
+        }
+        ap->destaddr.alen = (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+    } else {
+        struct sockaddr_un *un = &ap->destaddr.un;
+        size_t len = strlen(dest);
+        if (len >= sizeof(un->sun_path)) {
+            fprintf(stderr, "asyncproxy_ctor: path too long: %s\n", dest);
+            goto e3;
+        }
+        un->sun_family = AF_UNIX;
+        memcpy(un->sun_path, dest, len + 1);
+#if defined(HAVE_SOCKADDR_SUN_LEN)
+        un->sun_len = len;
+#endif
+        ap->destaddr.alen = sizeof(struct sockaddr_un);
     }
     if (asp_sock_setnonblock(ap->source.fd) == -1) {
         fprintf(stderr, "asyncproxy_ctor: asp_sock_setnonblock(ap->source.fd) failed: %s\n", strerror(errno));
@@ -547,10 +575,12 @@ asyncproxy_getsockname(void *_ap, unsigned short *portn)
     socklen_t snlen;
 
     ap = (struct asyncproxy *)_ap;
+    if (ap->af == AF_UNIX)
+        return ("AF_UNIX");
     snlen = sizeof(struct sockaddr_in);
     if (getsockname(ap->sink.fd, tov(&sn), &snlen) < 0)
         return (NULL);
-    if (inet_ntop(AF_INET, &sn.sin_addr, ap->addrbuf, sizeof(ap->addrbuf)) == NULL)
+    if (inet_ntop(ap->af, &sn.sin_addr, ap->addrbuf, sizeof(ap->addrbuf)) == NULL)
         return (NULL);
 
     if (portn != NULL) {

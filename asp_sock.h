@@ -1,3 +1,9 @@
+#pragma once
+
+#if defined(__FreeBSD__)
+#define HAVE_SOCKADDR_SUN_LEN 1
+#endif
+
 struct asp_iostats_uni;
 struct asp_iostats_bi;
 

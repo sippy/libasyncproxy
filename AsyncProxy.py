@@ -1,4 +1,4 @@
-# Copyright (c) 2017 Sippy Software, Inc. All rights reserved.
+# Copyright (c) 2017-2024 Sippy Software, Inc. All rights reserved.
 #
 # Warning: This computer program is protected by copyright law and
 # international treaties. Unauthorized reproduction or distribution of this
@@ -12,7 +12,7 @@ from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE, \
 _asp_data_cb = CFUNCTYPE(None, c_void_p, c_int)
 
 _asp = cdll.LoadLibrary('libasyncproxy.so')
-_asp.asyncproxy_ctor.argtypes = [c_int, c_char_p, c_ushort, c_char_p]
+_asp.asyncproxy_ctor.argtypes = [c_int, c_char_p, c_ushort, c_int, c_char_p]
 _asp.asyncproxy_ctor.restype = c_void_p
 _asp.asyncproxy_start.argtypes = [c_void_p,]
 _asp.asyncproxy_start.restype = c_int
@@ -37,11 +37,11 @@ class AsyncProxy(object):
     in2out = None
     out2in = None
 
-    def __init__(self, fd, dest, portn, bindto):
+    def __init__(self, fd, dest, portn, af, bindto):
         dest = c_char_p(bytes(dest.encode()))
         if bindto != None:
             bindto = c_char_p(bytes(bindto.encode()))
-        self._hndl = _asp.asyncproxy_ctor(fd, dest, portn, bindto)
+        self._hndl = _asp.asyncproxy_ctor(fd, dest, portn, af, bindto)
         if not bool(self._hndl):
             raise Exception('asyncproxy_ctor() failed')
         self.__asp = _asp
@@ -94,9 +94,8 @@ if __name__ == '__main__':
 
     setdebug(2)
 
-    dn = open('/dev/null', 'r+')
     dn = socketpair()
-    a = AsyncProxy(dn[0].fileno(), 'gmail-smtp-in.l.google.com', 25, None)
+    a = AsyncProxy(dn[0].fileno(), 'gmail-smtp-in.l.google.com', 25, AF_INET, None)
     a.start()
     while a.getsockname()[1] == 0:
         print(a.isAlive(), a.getsockname())
@@ -106,11 +105,11 @@ if __name__ == '__main__':
     for source in (getnull(), getrandom(), socketpair()):
         for sport in 80, 12345:
             #source = socketpair()
-            a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, lclsrc)
+            a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, AF_INET, lclsrc)
             print(a.isAlive(), a.getsockname())
             a.start()
             print(a.isAlive())
-            b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, lclsrc)
+            b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, AF_INET, lclsrc)
             print(b.isAlive())
             b.start()
             print(b.isAlive())

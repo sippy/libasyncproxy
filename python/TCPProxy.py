@@ -14,11 +14,12 @@ from time import sleep, strftime
 from errno import EADDRINUSE, ECONNRESET, EINTR
 
 try:
+    from ctypes import ArgumentError
     from .ForwarderFast import ForwarderFast as _Forwarder
     from .Forwarder import Forwarder as _Forwarder_safe
     def Forwarder(*a, **kwa):
         try: return _Forwarder(*a, **kwa)
-        except TypeError:
+        except (TypeError, ArgumentError):
             return _Forwarder_safe(*a, **kwa)
 except:
     from .Forwarder import Forwarder

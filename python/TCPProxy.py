@@ -24,20 +24,20 @@ try:
 except:
     from .Forwarder import Forwarder
 
-class TCPProxy(Thread):
+class TCPProxyBase(Thread):
     daemon = True
     dead = False
+    debug = False
     forwarders = None
-    allowed_ips: tuple
-    allowed_ips = None
+    allowed_ips: tuple = None
     bindhost_out = None
 
     def __init__(self, port, newhost, newport = None, bindhost = '127.0.0.1', logger = None, newaf = None):
         if newaf is None:
             newaf = socket.AF_INET if (newport is not None) else socket.AF_UNIX
         self.my_pid = os.getpid()
-        Thread.__init__(self)
-        #print('Redirecting: %s:%s -> %s:%s' % ( bindhost, port, newhost, newport ))
+        super().__init__()
+        self.dprint(lambda: f'Redirecting: {bindhost}:{port} -> {newhost}:{newport}')
         self.newhost = newhost
         self.newport = newport
         self.newaf = newaf
@@ -56,10 +56,82 @@ class TCPProxy(Thread):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
                 sock.bind(bindaddr)
-        sock.listen(500)
         self.port = port if (port != 0) else sock.getsockname()[1]
         self.sock = sock
         self.forwarders = []
+
+    def dprint(self, get_msg):
+        if not self.debug: return
+        sys.stderr.write(f'{get_msg()}\n')
+        sys.stderr.flush()
+
+    def spawn_forwarder(self, newsock):
+        daddr = (self.newhost, self.newport) if (self.newaf != socket.AF_UNIX) else self.newhost
+        try:
+            fwd = Forwarder(newsock, (daddr, self.newaf), self.bindhost_out, logger = self.logger)
+            self.forwarders.append(fwd)
+            fwd.start()
+        except Exception:
+            if self.dead:
+                return
+            dst = f'{self.newhost}:{self.newport}' if (self.newaf != socket.AF_UNIX) else f'"{self.newhost}"'
+            self.log(f'setting up redirection to {dst} failed')
+            self.log('-' * 70)
+            self.log(traceback.format_exc())
+            self.log('-' * 70, True)
+            sleep(0.01)
+            return
+
+        forwarders = []
+        for fwd in self.forwarders:
+            if fwd.isAlive():
+                forwarders.append(fwd)
+            else:
+                self.dprint(lambda: f'joinning forwarder: {fwd.describe()}')
+                fwd.join()
+                self.dprint(lambda: f'joinning forwarder done: {fwd.describe()}')
+        self.forwarders = forwarders
+
+    def shutdown(self):
+        self.dead = True
+        while len(self.forwarders) > 0:
+            forwarder = self.forwarders.pop()
+            self.dprint(lambda: f'shutting down forwarder: {forwarder.describe()}')
+            if forwarder.isAlive():
+                forwarder.shutdown()
+            forwarder.join()
+        self.sock.close()
+        self.join()
+
+    def log(self, msg, flush = False):
+        msg = 'TCPProxy[%d]: %s' % (hash(self), msg)
+        if self.logger != None:
+            self.logger.log(msg, flush)
+        else:
+            self.dprint(lambda: f'{strftime("%Y-%m-%d %H:%M:%S")}: {msg}')
+            if flush:
+                sys.stdout.flush()
+
+class TCPProxyActive(TCPProxyBase):
+    destaddr: tuple
+    def __init__(self, destaddr, *a, **kwa):
+        super().__init__(0, *a, **kwa)
+        self.destaddr = destaddr
+
+    def run(self):
+        self.sock.connect(self.destaddr)
+        self.spawn_forwarder(self.sock)
+        self.forwarders[0].join()
+
+class TCPProxy(TCPProxyBase):
+    def __init__(self, *a, **kwa):
+        super().__init__(*a, **kwa)
+        self.sock.listen(500)
+
+    def access_check(self, address):
+        if self.allowed_ips is None or address[0] in self.allowed_ips:  # pylint: disable=unsupported-membership-test
+            return True
+        return False
 
     def run(self):
         poller = select.poll()
@@ -77,15 +149,15 @@ class TCPProxy(Thread):
             if not flag & (select.POLLIN | select.POLLPRI):
                 continue
             try:
-                #print('self.sock.accept()')
+                self.dprint(lambda: 'self.sock.accept()')
                 newsock, address = self.sock.accept()
-                #print(newsock, address)
+                self.dprint(lambda: f'{newsock=}, {address=}')
                 if self.dead:
                     self.log('ignore connection attempt from IP %s during shutdown' % address[0])
                     newsock.shutdown(socket.SHUT_RDWR)
                     newsock.close()
                     continue
-                if self.allowed_ips is not None and address[0] not in self.allowed_ips: # pylint: disable=unsupported-membership-test
+                if not self.access_check(address):
                     newsock.shutdown(socket.SHUT_RDWR)
                     newsock.close()
                     self.log('connection attempt from the unknown IP %s has been rejected' % address[0])
@@ -103,49 +175,4 @@ class TCPProxy(Thread):
                     continue
                 self.log("got socket.error exception: %s" % str(e))
                 continue
-
-            daddr = (self.newhost, self.newport) if (self.newaf != socket.AF_UNIX) else self.newhost
-            try:
-                fwd = Forwarder(newsock, (daddr, self.newaf), self.bindhost_out, logger = self.logger)
-                self.forwarders.append(fwd)
-                fwd.start()
-            except Exception:
-                if self.dead:
-                    return
-                dst = f'{self.newhost}:{self.newport}' if (self.newaf != socket.AF_UNIX) else f'"{self.newhost}"'
-                self.log(f'setting up redirection to {dst} failed')
-                self.log('-' * 70)
-                self.log(traceback.format_exc())
-                self.log('-' * 70, True)
-                sleep(0.01)
-                continue
-
-            forwarders = []
-            for fwd in self.forwarders:
-                if fwd.isAlive():
-                    forwarders.append(fwd)
-                else:
-                    #print('joinning forwarder:', fwd.describe())
-                    fwd.join()
-                    #print('joinning forwarder done:', fwd.describe())
-            self.forwarders = forwarders
-
-    def shutdown(self):
-        self.dead = True
-        while len(self.forwarders) > 0:
-            forwarder = self.forwarders.pop()
-            #print('shutting down forwarder:', forwarder.describe())
-            if forwarder.isAlive():
-                forwarder.shutdown()
-            forwarder.join()
-        self.sock.close()
-        self.join()
-
-    def log(self, msg, flush = False):
-        msg = 'TCPProxy[%d]: %s' % (hash(self), msg)
-        if self.logger != None:
-            self.logger.log(msg, flush)
-        else:
-            print("%s: %s" % (strftime("%Y-%m-%d %H:%M:%S"), msg))
-            if flush:
-                sys.stdout.flush()
+            self.spawn_forwarder(newsock)

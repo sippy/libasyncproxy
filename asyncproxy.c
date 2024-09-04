@@ -344,14 +344,22 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
     int n, fd1;
 
     if (dbg_level > 0) {
-        fprintf(stderr, "asyncproxy_ctor(%d, %s, %d, %u, %s) = %p\n", fd, dest,
-          portn, af, bindto, ap);
+        fprintf(stderr, "asyncproxy_ctor(%d, %s, %d, %u, %s) = ", fd, dest,
+          portn, af, bindto);
         fflush(stderr);
     }
 
     ap = malloc(sizeof(struct asyncproxy));
     if (ap == NULL) {
+        if (dbg_level > 0) {
+            fprintf(stderr, "NULL\n");
+            fflush(stderr);
+        }
         return (NULL);
+    }
+    if (dbg_level > 0) {
+        fprintf(stderr, "%p\n", ap);
+        fflush(stderr);
     }
     memset(ap, '\0', sizeof(struct asyncproxy));
     fd1 = dup(fd);
@@ -488,7 +496,7 @@ asyncproxy_dtor(void *_ap)
     if (ap->state == AP_STATE_START || ap->state == AP_STATE_RUN)
         ap->state = AP_STATE_CEASE;
     pthread_mutex_unlock(&ap->mutex);
-    asyncproxy_join(_ap);
+    asyncproxy_join(_ap, 1);
     pthread_mutex_destroy(&ap->mutex);
     asp_sock_dtor(&ap->sink);
     asp_sock_dtor(&ap->source);
@@ -541,7 +549,7 @@ asyncproxy_set_o2i(void *_ap, void (*o2ifp)(void *, int))
 }
 
 void
-asyncproxy_join(void *_ap)
+asyncproxy_join(void *_ap, int force)
 {
     struct asyncproxy *ap;
 
@@ -549,7 +557,8 @@ asyncproxy_join(void *_ap)
     if (!ap->needsjoin) {
         return;
     }
-    shutdown(ap->sink.fd, SHUT_RDWR);
+    if (force != 0)
+        shutdown(ap->sink.fd, SHUT_RDWR);
     pthread_join(ap->thread, NULL);
     ap->needsjoin = 0;
 }

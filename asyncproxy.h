@@ -14,7 +14,7 @@ int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
 void asyncproxy_set_i2o(void *, void (*)(void *, int));
 void asyncproxy_set_o2i(void *, void (*)(void *, int));
-void asyncproxy_join(void *);
+void asyncproxy_join(void *, int);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);
 const char * asyncproxy_getsockname(void *, unsigned short *);

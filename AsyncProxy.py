@@ -21,7 +21,7 @@ _asp.asyncproxy_isalive.restype = c_int
 _asp.asyncproxy_dtor.argtypes = [c_void_p,]
 _asp.asyncproxy_set_i2o.argtypes = [c_void_p, _asp_data_cb]
 _asp.asyncproxy_set_o2i.argtypes = [c_void_p, _asp_data_cb]
-_asp.asyncproxy_join.argtypes = [c_void_p,]
+_asp.asyncproxy_join.argtypes = [c_void_p, c_int]
 _asp.asyncproxy_describe.argtypes = [c_void_p,]
 _asp.asyncproxy_describe.restype = c_char_p
 _asp.asyncproxy_getsockname.argtypes = [c_void_p, POINTER(c_ushort)]
@@ -59,8 +59,8 @@ class AsyncProxy(object):
     def isAlive(self):
         return bool(self.__asp.asyncproxy_isalive(self._hndl))
 
-    def join(self):
-        self.__asp.asyncproxy_join(self._hndl)
+    def join(self, shutdown=True):
+        self.__asp.asyncproxy_join(self._hndl, shutdown)
 
     def __del__(self):
         if bool(self._hndl):

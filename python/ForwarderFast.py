@@ -7,9 +7,11 @@
 # law.
 
 import socket
-from AsyncProxy import AsyncProxy
+
+from .AsyncProxy import AsyncProxy, setdebug as AP_setdebug
 
 class ForwarderFast(AsyncProxy):
+    debug = False
     port1 = None
     _port2 = None
     dead = False
@@ -22,6 +24,8 @@ class ForwarderFast(AsyncProxy):
         AsyncProxy.__init__(self, source.fileno(), addr, port, sink_addr[1], bindhost_out)
         self.source = source
         self.port1 = source.getpeername()[1]
+        if self.debug:
+            AP_setdebug(2)
 
     def start(self):
         AsyncProxy.start(self)
@@ -38,6 +42,9 @@ class ForwarderFast(AsyncProxy):
             self.source.shutdown(socket.SHUT_RDWR)
             self.source.close()
             self.source = None
+
+    def join(self):
+        super().join(shutdown=False)
 
     @property
     def port2(self):

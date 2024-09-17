@@ -31,6 +31,7 @@ class TCPProxyBase(Thread):
     forwarders = None
     allowed_ips: tuple = None
     bindhost_out = None
+    disc_cb:callable = None
 
     def __init__(self, port, newhost, newport = None, bindhost = '127.0.0.1', logger = None, newaf = None):
         if newaf is None:
@@ -122,6 +123,10 @@ class TCPProxyActive(TCPProxyBase):
         self.sock.connect(self.destaddr)
         self.spawn_forwarder(self.sock)
         self.forwarders[0].join()
+        if self.disc_cb is not None:
+            # pylint: disable-next=not-callable
+            self.disc_cb()
+            self.disc_cb = None
 
 class TCPProxy(TCPProxyBase):
     def __init__(self, *a, **kwa):
@@ -176,3 +181,7 @@ class TCPProxy(TCPProxyBase):
                 self.log("got socket.error exception: %s" % str(e))
                 continue
             self.spawn_forwarder(newsock)
+        if self.disc_cb is not None:
+            # pylint: disable-next=not-callable
+            self.disc_cb()
+            self.disc_cb = None

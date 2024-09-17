@@ -7,12 +7,38 @@
 # law.
 
 from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE, \
-  POINTER, pointer
+  POINTER, pointer, Structure, Union, byref
+
+AP_DEST_HOST = 0
+AP_DEST_FD = 1
+
+class _DestStruct(Structure):
+    _fields_ = [
+        ("dest", c_char_p),
+        ("portn", c_ushort),
+        ("af", c_int),
+        ("bindto", c_char_p),
+    ]
+
+class _AnonUnion(Union):
+    _anonymous_ = ("dest_struct",)
+    _fields_ = [
+        ("dest_struct", _DestStruct),
+        ("out_fd", c_int),
+    ]
+
+class asyncproxy_ctor_args(Structure):
+    _anonymous_ = ("_anon_union",)
+    _fields_ = [
+        ("fd", c_int),
+        ("dest_type", c_int),
+        ("_anon_union", _AnonUnion),
+    ]
 
 _asp_data_cb = CFUNCTYPE(None, c_void_p, c_int)
 
 _asp = cdll.LoadLibrary('libasyncproxy.so')
-_asp.asyncproxy_ctor.argtypes = [c_int, c_char_p, c_ushort, c_int, c_char_p]
+_asp.asyncproxy_ctor.argtypes = [POINTER(asyncproxy_ctor_args)]
 _asp.asyncproxy_ctor.restype = c_void_p
 _asp.asyncproxy_start.argtypes = [c_void_p,]
 _asp.asyncproxy_start.restype = c_int
@@ -31,17 +57,14 @@ _asp.asyncproxy_setdebug.argtypes = [c_int,]
 def setdebug(level):
     _asp.asyncproxy_setdebug(level)
 
-class AsyncProxy(object):
+class AsyncProxyBase(object):
     _hndl = None
     __asp = None
     in2out = None
     out2in = None
 
-    def __init__(self, fd, dest, portn, af, bindto):
-        dest = c_char_p(bytes(dest.encode()))
-        if bindto is not None:
-            bindto = c_char_p(bytes(bindto.encode()))
-        self._hndl = _asp.asyncproxy_ctor(fd, dest, portn, af, bindto)
+    def __init__(self, args:asyncproxy_ctor_args):
+        self._hndl = _asp.asyncproxy_ctor(byref(args))
         if not bool(self._hndl):
             raise Exception('asyncproxy_ctor() failed')
         self.__asp = _asp
@@ -85,7 +108,28 @@ class AsyncProxy(object):
             raise Exception('asyncproxy_getsockname() failed')
         return (a.decode(), portnum.value)
 
+class AsyncProxy(AsyncProxyBase):
+    def __init__(self, fd, dest, portn, af, bindto):
+        args = asyncproxy_ctor_args()
+        args.fd = fd
+        args.dest = c_char_p(bytes(dest.encode()))
+        args.portn = portn
+        args.af = af
+        args.dest_type = AP_DEST_HOST
+        if bindto is not None:
+            args.bindto = c_char_p(bytes(bindto.encode()))
+        super().__init__(args)
+
+class AsyncProxy2FD(AsyncProxyBase):
+    def __init__(self, fd1:int, fd2:int):
+        args = asyncproxy_ctor_args()
+        args.fd = fd1
+        args.out_fd = fd2
+        args.dest_type = AP_DEST_FD
+        super().__init__(args)
+
 if __name__ == '__main__':
+    import sys
     from time import sleep
     from socket import socketpair, AF_INET
 
@@ -114,8 +158,14 @@ if __name__ == '__main__':
             b.start()
             print(b.isAlive())
             print('a=%s b=%s' % (a.describe(), b.describe()))
-            while a.isAlive() or b.isAlive():
+            i = 0
+            while (a.isAlive() or b.isAlive()) and i < 10:
                 sleep(1)
+                i += 1
             print('a=%s b=%s' % (a.describe(), b.describe()))
             a.join()
             b.join()
+    args = getnull()
+    a = AsyncProxy2FD(*(x.fileno() for x in args))
+    a.start()
+    a.join(shutdown=False)

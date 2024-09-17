@@ -8,8 +8,23 @@
  * law.
  */
 
-void * asyncproxy_ctor(int fd, const char *dest, unsigned short portn,
-  int af, const char *bindto);
+enum ap_dest {AP_DEST_HOST = 0, AP_DEST_FD};
+
+struct asyncproxy_ctor_args {
+    int fd;
+    enum ap_dest dest_type;
+    union {
+        struct {
+            const char *dest;
+            unsigned short portn;
+            int af;
+            const char *bindto;
+        };
+        int out_fd;
+    };
+};
+
+void * asyncproxy_ctor(const struct asyncproxy_ctor_args *);
 int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
 void asyncproxy_set_i2o(void *, void (*)(void *, int));

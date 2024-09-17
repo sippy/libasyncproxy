@@ -52,6 +52,7 @@ static int dbg_level = DBG_LEVEL;
 struct asyncproxy {
     struct asp_sock source;
     struct asp_sock sink;
+    enum ap_dest dest_type;
     const char *dest;
     unsigned short portn;
     int af;
@@ -198,18 +199,20 @@ asyncproxy_run(void *args)
     pfds[1].events = POLLIN;
     asps[1] = &ap->sink;
 
-    rval = connect(ap->sink.fd, &ap->destaddr.sa, ap->destaddr.alen);
-    if (rval != 0) {
-        if (ap->debug > 2) {
-            fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink.fd, rval);
-            fflush(stderr);
+    if (ap->dest_type == AP_DEST_HOST) {
+        rval = connect(ap->sink.fd, &ap->destaddr.sa, ap->destaddr.alen);
+        if (rval != 0) {
+            if (ap->debug > 2) {
+                fprintf(stderr, "asyncproxy_run: connect(%d) = %d\n", ap->sink.fd, rval);
+                fflush(stderr);
+            }
+            if (errno != EINPROGRESS) {
+                fprintf(stderr, "asyncproxy_run: connect() failed: %s\n", strerror(errno));
+                fflush(stderr);
+                goto out;
+            }
+            pfds[1].events |= POLLOUT;
         }
-        if (errno != EINPROGRESS) {
-            fprintf(stderr, "asyncproxy_run: connect() failed: %s\n", strerror(errno));
-            fflush(stderr);
-            goto out;
-        }
-        pfds[1].events |= POLLOUT;
     }
 
     for (;;) {
@@ -254,14 +257,20 @@ asyncproxy_run(void *args)
             }
             j = NEG(i);
             if (pfds[i].revents & POLLIN && BUF_FREE(&bufs[i]) > 0) {
-                {static int b=0; while (b);}
-                rlen = asp_sock_recv(asps[i], BUF_P(&bufs[i]), BUF_FREE(&bufs[i]));
+                struct recv_res r;
+                r = asp_sock_recv(asps[i], BUF_P(&bufs[i]), BUF_FREE(&bufs[i]));
                 if (ap->debug > 2) {
                     assert(pfds[i].fd == asps[i]->fd);
-                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, rlen, pfds[i].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, r.len, pfds[i].fd);
                     fflush(stderr);
                 }
-                if (rlen <= 0) {
+                if (r.len <= 0) {
+                    if (ap->debug > 1) {
+                        fprintf(stderr, "asyncproxy_run(%p): fd %d recv "
+                          "failed with error %d, out\n", ap, pfds[i].fd,
+                          r.errnom);
+                        fflush(stderr);
+                    }
                     eidx = i;
                     goto out;
                 }
@@ -270,12 +279,12 @@ asyncproxy_run(void *args)
                     PyGILState_STATE gstate;
                     gstate = PyGILState_Ensure();
 #endif
-                    ap->transform[i](BUF_P(&bufs[i]), rlen);
+                    ap->transform[i](BUF_P(&bufs[i]), r.len);
 #if defined(PYTHON_AWARE)
                     PyGILState_Release(gstate);
 #endif
                 }
-                bufs[i].len += rlen;
+                bufs[i].len += r.len;
                 if (BUF_FREE(&bufs[i]) == 0) {
                     pfds[i].events &= ~POLLIN;
                 }
@@ -336,16 +345,20 @@ out:
 }
 
 void *
-asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
-  const char *bindto)
+asyncproxy_ctor(const struct asyncproxy_ctor_args *acap)
 {
     struct asyncproxy *ap;
     char pnum[6];
     int n, fd1;
 
     if (dbg_level > 0) {
-        fprintf(stderr, "asyncproxy_ctor(%d, %s, %d, %u, %s) = ", fd, dest,
-          portn, af, bindto);
+        if (acap->dest_type == AP_DEST_HOST) {
+            fprintf(stderr, "asyncproxy_ctor(%d, %s, %d, %u, %s) = ",
+              acap->fd, acap->dest, acap->portn, acap->af, acap->bindto);
+        } else {
+            fprintf(stderr, "asyncproxy_ctor(%d, %d) = ", acap->fd,
+              acap->out_fd);
+        }
         fflush(stderr);
     }
 
@@ -362,7 +375,7 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
         fflush(stderr);
     }
     memset(ap, '\0', sizeof(struct asyncproxy));
-    fd1 = dup(fd);
+    fd1 = dup(acap->fd);
     if (fd1 == -1) {
         goto e0;
     }
@@ -370,14 +383,19 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
         close(fd1);
         goto e0;
     }
-    ap->dest = dest;
-    ap->portn = portn;
-    ap->af = af;
-    ap->bindto = bindto;
+    ap->dest_type = acap->dest_type;
     ap->debug = dbg_level;
     ap->last_seen_alive = -1;
+    ap->dest = acap->dest;
+    if (acap->dest_type == AP_DEST_FD) {
+        fd1 = dup(acap->out_fd);
+    } else {
+        ap->portn = acap->portn;
+        ap->af = acap->af;
+        ap->bindto = acap->bindto;
 
-    fd1 = socket(af, SOCK_STREAM, 0);
+        fd1 = socket(acap->af, SOCK_STREAM, 0);
+    }
     if (fd1 < 0)
         goto e1;
     if (asp_sock_ctor(&ap->sink, fd1) != 0) {
@@ -385,11 +403,14 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
         goto e1;
     }
 
-    if (bindto != NULL) {
-        assert (af != AF_UNIX);
+    if (acap->dest_type == AP_DEST_FD)
+        goto finalize;
+
+    if (acap->bindto != NULL) {
+        assert (acap->af != AF_UNIX);
         struct sockaddr_in bindaddr;
 
-        if (asp_pton(bindto, &bindaddr) != 1) {
+        if (asp_pton(acap->bindto, &bindaddr) != 1) {
             fprintf(stderr, "asyncproxy_ctor: inet_pton() failed\n");
             goto e3;
         }
@@ -398,29 +419,29 @@ asyncproxy_ctor(int fd, const char *dest, unsigned short portn, int af,
             goto e3;
         }
     }
-
-    if (af != AF_UNIX) {
-        snprintf(pnum, sizeof(pnum), "%u", portn);
-        n = resolve(&ap->destaddr.sa, af, dest, pnum, 0);
+    if (acap->af != AF_UNIX) {
+        snprintf(pnum, sizeof(pnum), "%u", acap->portn);
+        n = resolve(&ap->destaddr.sa, acap->af, acap->dest, pnum, 0);
         if (n != 0) {
             fprintf(stderr, "asyncproxy_ctor: resolve() failed: %s\n", gai_strerror(n));
             goto e3;
         }
-        ap->destaddr.alen = (af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+        ap->destaddr.alen = (acap->af == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
     } else {
         struct sockaddr_un *un = &ap->destaddr.un;
-        size_t len = strlen(dest);
+        size_t len = strlen(acap->dest);
         if (len >= sizeof(un->sun_path)) {
-            fprintf(stderr, "asyncproxy_ctor: path too long: %s\n", dest);
+            fprintf(stderr, "asyncproxy_ctor: path too long: %s\n", acap->dest);
             goto e3;
         }
         un->sun_family = AF_UNIX;
-        memcpy(un->sun_path, dest, len + 1);
+        memcpy(un->sun_path, acap->dest, len + 1);
 #if defined(HAVE_SOCKADDR_SUN_LEN)
         un->sun_len = len;
 #endif
         ap->destaddr.alen = sizeof(struct sockaddr_un);
     }
+finalize:
     if (asp_sock_setnonblock(ap->source.fd) == -1) {
         fprintf(stderr, "asyncproxy_ctor: asp_sock_setnonblock(ap->source.fd) failed: %s\n", strerror(errno));
         goto e3;

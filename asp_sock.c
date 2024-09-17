@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <pthread.h>
 
@@ -17,29 +18,31 @@ asp_sock_getstats(struct asp_sock *asp, struct asp_iostats_bi *res, int lock)
          pthread_mutex_unlock(&asp->mutex);
 }
 
-ssize_t
+struct recv_res
 asp_sock_recv(struct asp_sock *asp, void *buf, size_t len)
 {
-     ssize_t rlen;
+     struct recv_res r = {0};
      struct asp_iostats_bi tstats;
      int update_stats;
 
      update_stats = 0;
      pthread_mutex_lock(&asp->mutex);
-     rlen = recv(asp->fd, buf, len, 0);
-     if (rlen > 0) {
+     r.len = recv(asp->fd, buf, len, 0);
+     if (r.len > 0) {
          asp->stats.in.nops++;
-         asp->stats.in.btotal += rlen;
+         asp->stats.in.btotal += r.len;
          if (asp->on_stats_update != NULL) {
              tstats = asp->stats;
              update_stats = 1;
          }
+     } else {
+         r.errnom = errno;
      }
      pthread_mutex_unlock(&asp->mutex);
      if (update_stats) {
          asp->on_stats_update(&tstats);
      }
-     return (rlen);
+     return (r);
 }
 
 ssize_t

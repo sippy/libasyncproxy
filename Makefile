@@ -6,8 +6,8 @@ LIBDIR= ${PREFIX}/lib
 
 CFLAGS=	-g3 -O0
 
-SRCS=		asyncproxy.c asyncproxy.h asp_sock.c \
-		asp_sock.h asp_iostats.h
+SRCS=		src/asyncproxy.c src/asyncproxy.h src/asp_sock.c \
+		src/asp_sock.h src/asp_iostats.h
 
 LDADD=          -l${LIBTHREAD}
 

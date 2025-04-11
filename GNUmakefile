@@ -7,8 +7,8 @@ PREFIX?= /usr/local
 LIBDIR= ${PREFIX}/lib
 INCLUDEDIR= ${PREFIX}/include
 
-SRCS_C= asyncproxy.c asp_sock.c
-SRCS_H= asyncproxy.h asp_sock.h asp_iostats.h
+SRCS_C= src/asyncproxy.c src/asp_sock.c
+SRCS_H= src/asyncproxy.h src/asp_sock.h src/asp_iostats.h
 
 CFLAGS?= -O2 -pipe
 

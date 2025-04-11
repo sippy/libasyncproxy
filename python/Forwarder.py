@@ -14,6 +14,7 @@ from time import strftime
 from errno import EINTR
 
 class Forwarder(Thread):
+    daemon = True
     port1 = None
     port2 = None
     dead = False
@@ -34,7 +35,6 @@ class Forwarder(Thread):
         self.logger = logger
         #print('Creating new pipe thread  %s ( %s -> %s )' % \
         #    ( self, source.getpeername(), sink_addr[0] ))
-        self.setDaemon(True)
 
     def setstate(self, s):
         self.state_lock.acquire()

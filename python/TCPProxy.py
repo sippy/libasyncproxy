@@ -19,6 +19,7 @@ except:
     from .Forwarder import Forwarder
 
 class TCPProxy(Thread):
+    daemon = True
     dead = False
     forwarders = None
     allowed_ips: tuple
@@ -49,7 +50,6 @@ class TCPProxy(Thread):
         sock.listen(500)
         self.sock = sock
         self.forwarders = []
-        self.setDaemon(True)
 
     def run(self):
         poller = select.poll()

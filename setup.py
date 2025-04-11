@@ -14,7 +14,7 @@ is_mac = get_platform().startswith('macosx-')
 
 lap_srcs = ['src/asyncproxy.c', 'src/asp_sock.c']
 
-extra_compile_args = ['-Wall']
+extra_compile_args = ['-Wall', '-DPYTHON_AWARE']
 if not is_win:
     extra_compile_args += ['--std=c11', '-Wno-zero-length-array',
                            '-flto', '-pedantic']

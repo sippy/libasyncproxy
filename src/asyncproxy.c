@@ -8,7 +8,12 @@
  * law.
  */
 
+#if defined(PYTHON_AWARE)
+#undef _POSIX_C_SOURCE
+#include <Python.h>
+#else
 #define _POSIX_C_SOURCE 200112L
+#endif
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -26,10 +31,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#if defined(PYTHON_AWARE)
-#include "python2.7/Python.h"
-#endif
 
 #include "asyncproxy.h"
 #include "asp_iostats.h"

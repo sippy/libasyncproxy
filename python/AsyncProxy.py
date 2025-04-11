@@ -9,6 +9,13 @@
 from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE, \
   POINTER, pointer, Structure, Union, byref
 
+from sysconfig import get_config_var
+from site import getsitepackages
+from pathlib import Path
+from os.path import abspath, dirname, join as path_join
+
+from .env import LAP_MOD_NAME
+
 AP_DEST_HOST = 0
 AP_DEST_FD = 1
 
@@ -37,7 +44,26 @@ class asyncproxy_ctor_args(Structure):
 
 _asp_data_cb = CFUNCTYPE(None, c_void_p, c_int)
 
-_asp = cdll.LoadLibrary('libasyncproxy.so')
+_esuf = get_config_var('EXT_SUFFIX')
+if not _esuf:
+    _esuf = '.so'
+try:
+    _ROOT = str(Path(__file__).parent.absolute())
+except ImportError:
+    _ROOT = abspath(dirname(__file__))
+#print('ROOT: ' + str(_ROOT))
+modloc = getsitepackages()
+modloc.insert(0, path_join(_ROOT, ".."))
+for p in modloc:
+    try:
+        #print("Trying %s" % path_join(p, LAP_MOD_NAME + _esuf))
+        _asp = cdll.LoadLibrary(path_join(p, LAP_MOD_NAME + _esuf))
+    except:
+        continue
+    break
+else:
+    _asp = cdll.LoadLibrary('libasyncproxy.so')
+
 _asp.asyncproxy_ctor.argtypes = [POINTER(asyncproxy_ctor_args)]
 _asp.asyncproxy_ctor.restype = c_void_p
 _asp.asyncproxy_start.argtypes = [c_void_p,]

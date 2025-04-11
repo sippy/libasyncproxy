@@ -1,0 +1,14 @@
+LIBASYNCPROXY_52f3df78d5 {
+    global:
+      asyncproxy_ctor;
+      asyncproxy_describe;
+      asyncproxy_dtor;
+      asyncproxy_getsockname;
+      asyncproxy_isalive;
+      asyncproxy_join;
+      asyncproxy_set_i2o;
+      asyncproxy_set_o2i;
+      asyncproxy_setdebug;
+      asyncproxy_start;
+    local: *;
+};

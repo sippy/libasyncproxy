@@ -10,8 +10,8 @@ import sys
 from threading import Thread, Lock
 import socket, select, fcntl, os
 import traceback
-from datetime import datetime
 from time import strftime
+from errno import EINTR
 
 class Forwarder(Thread):
     port1 = None
@@ -139,12 +139,11 @@ class Forwarder(Thread):
         except socket.timeout as e:
             if self.dead:
                 return
-            self.log('timed out when processing data in state %s' % self.getstate())
+            self.log('timed out when processing data in state %s: %s' % (self.getstate(), str(e)))
         except select.error as e:
             if self.dead:
                 return
-            errno, string = e.errno, e.strerror
-            if errno == 4:
+            if e.errno == EINTR:
                 # Ignoring 'Interrupted system call'
                 pass
             else:

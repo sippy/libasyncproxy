@@ -11,7 +11,7 @@ from threading import Thread
 import socket, os, select
 import traceback
 from time import sleep, strftime
-from errno import EADDRINUSE, ENOTCONN, ECONNRESET, EINTR
+from errno import EADDRINUSE, ECONNRESET, EINTR
 
 try:
     from .ForwarderFast import ForwarderFast as Forwarder
@@ -83,12 +83,11 @@ class TCPProxy(Thread):
             except socket.error as e:
                 if self.dead:
                     return
-                errno, string = e.errno, e.strerror
-                if errno == ECONNRESET:
+                if e.errno == ECONNRESET:
                     # Ignore 'Connection reset by peer'
                     self.log("Ignoring 'Connection reset by peer'")
                     continue
-                elif errno == EINTR:
+                elif e.errno == EINTR:
                     # Ignore 'Interrupted system call'
                     self.log("Ignoring 'Interrupted system call'")
                     continue
@@ -99,7 +98,7 @@ class TCPProxy(Thread):
                 fwd = Forwarder(newsock, (self.newhost, self.newport), self.bindhost_out, logger = self.logger)
                 self.forwarders.append(fwd)
                 fwd.start()
-            except Exception as e:
+            except Exception:
                 if self.dead:
                     return
                 self.log('setting up redirection to %s:%s failed' % (self.newhost, self.newport))

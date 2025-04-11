@@ -27,12 +27,13 @@ from socket import socketpair, AF_INET
 
 from libasyncproxy.AsyncProxy import AsyncProxy, AsyncProxy2FD, setdebug
 
-class PipelineTest(unittest.TestCase):
+class AsyncProxyTest(unittest.TestCase):
+    debug = False
     def test_AsyncProxy(self):
         getnull = lambda: (open('/dev/null', 'r+'), open('/dev/null', 'r+'))
         getrandom = lambda: (open('/dev/urandom', 'r'), open('/dev/urandom', 'r'))
 
-        setdebug(2)
+        if self.debug: setdebug(2)
 
         dn = socketpair()
         a = AsyncProxy(dn[0].fileno(), 'gmail-smtp-in.l.google.com', 25, AF_INET, None)
@@ -73,4 +74,5 @@ def runme():
     unittest.main(module = __name__)
 
 if __name__ == '__main__':
+    AsyncProxyTest.debug = True
     runme()

@@ -111,11 +111,11 @@ class AsyncProxyBase(object):
             raise Exception('asyncproxy_ctor() failed')
         self.__asp = _asp
         if self.in2out is not None:
-            in2out = _asp_data_cb(self.in2out)
-            self.__asp.asyncproxy_set_i2o(self._hndl, in2out)
+            self._in2out_cb = _asp_data_cb(self.in2out)
+            self.__asp.asyncproxy_set_i2o(self._hndl, self._in2out_cb)
         if self.out2in is not None:
-            out2in = _asp_data_cb(self.out2in)
-            self.__asp.asyncproxy_set_o2i(self._hndl, out2in)
+            self._out2in_cb = _asp_data_cb(self.out2in)
+            self.__asp.asyncproxy_set_o2i(self._hndl, self._out2in_cb)
 
     def start(self):
         if int(self.__asp.asyncproxy_start(self._hndl)) != 0:

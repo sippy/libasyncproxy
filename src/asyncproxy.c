@@ -74,7 +74,7 @@ struct asyncproxy {
         socklen_t alen;
     } destaddr;
     int last_seen_alive;
-    void (*transform[2])(void *, int);
+    void (*transform[2])(struct transform_res *);
     int needsjoin;
     char addrbuf[FILENAME_MAX];
 };
@@ -163,7 +163,7 @@ asp_sock_setnonblock(int fd)
 
 struct io_buf {
     unsigned char data[16 * 1024];
-    int len;
+    size_t len;
 };
 
 #define BUF_FREE(ibp) (sizeof((ibp)->data) - (ibp)->len)
@@ -278,17 +278,32 @@ asyncproxy_run(void *args)
                     goto out;
                 }
                 pthread_mutex_lock(&ap->mutex);
-                void (*transform)(void *, int) = ap->transform[i];
+                __typeof(ap->transform[i]) transform = ap->transform[i];
                 pthread_mutex_unlock(&ap->mutex);
                 if (transform != NULL) {
 #if defined(PYTHON_AWARE)
                     PyGILState_STATE gstate;
                     gstate = PyGILState_Ensure();
 #endif
-                    transform(BUF_P(&bufs[i]), r.len);
+                    struct transform_res tr = {BUF_P(&bufs[i]), r.len};
+                    transform(&tr);
 #if defined(PYTHON_AWARE)
                     PyGILState_Release(gstate);
 #endif
+                    if ((ssize_t)tr.len != r.len) {
+                        assert(BUF_FREE(&bufs[i]) >= tr.len);
+                        r.len = tr.len;
+                    }
+                    if (tr.buf != BUF_P(&bufs[i])) {
+                        if (tr.len > 0) {
+                            assert(BUF_FREE(&bufs[i]) >= tr.len);
+                            memmove(BUF_P(&bufs[i]), tr.buf, tr.len);
+                        }
+                        r.len = tr.len;
+                    } else if ((ssize_t)tr.len != r.len) {
+                        assert((ssize_t)tr.len < r.len);
+                        r.len = tr.len;
+                    }
                 }
                 bufs[i].len += r.len;
                 if (BUF_FREE(&bufs[i]) == 0) {
@@ -308,12 +323,12 @@ asyncproxy_run(void *args)
                     fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", ap, rlen, pfds[j].fd);
                     fflush(stderr);
                 }
-                if (rlen < bufs[i].len) {
+                if (rlen < (ssize_t)bufs[i].len) {
                     pfds[j].events |= POLLOUT;
                 }
                 if (rlen <= 0)
                     continue;
-                if (rlen < bufs[i].len) {
+                if (rlen < (ssize_t)bufs[i].len) {
                     memmove(bufs[i].data, bufs[i].data + rlen, bufs[i].len - rlen);
                     bufs[i].len -= rlen;
                 } else {
@@ -552,7 +567,7 @@ asyncproxy_isalive(void *_ap)
 }
 
 void
-asyncproxy_set_i2o(void *_ap, void (*i2ofp)(void *, int))
+asyncproxy_set_i2o(void *_ap, void (*i2ofp)(struct transform_res *))
 {
     struct asyncproxy *ap;
 
@@ -564,7 +579,7 @@ asyncproxy_set_i2o(void *_ap, void (*i2ofp)(void *, int))
 }
 
 void
-asyncproxy_set_o2i(void *_ap, void (*o2ifp)(void *, int))
+asyncproxy_set_o2i(void *_ap, void (*o2ifp)(struct transform_res *))
 {
     struct asyncproxy *ap;
 

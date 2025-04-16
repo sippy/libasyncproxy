@@ -24,11 +24,16 @@ struct asyncproxy_ctor_args {
     };
 };
 
+struct transform_res {
+    void *buf;
+    size_t len;
+};
+
 void * asyncproxy_ctor(const struct asyncproxy_ctor_args *);
 int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
-void asyncproxy_set_i2o(void *, void (*)(void *, int));
-void asyncproxy_set_o2i(void *, void (*)(void *, int));
+void asyncproxy_set_i2o(void *, void (*)(struct transform_res *));
+void asyncproxy_set_o2i(void *, void (*)(struct transform_res *));
 void asyncproxy_join(void *, int);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);

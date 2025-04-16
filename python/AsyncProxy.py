@@ -23,7 +23,7 @@
 
 
 from ctypes import cdll, c_int, c_char_p, c_ushort, c_void_p, CFUNCTYPE, \
-  POINTER, pointer, Structure, Union, byref
+  POINTER, pointer, Structure, Union, byref, c_size_t
 
 from sysconfig import get_config_var
 from site import getsitepackages
@@ -58,7 +58,13 @@ class asyncproxy_ctor_args(Structure):
         ("_anon_union", _AnonUnion),
     ]
 
-_asp_data_cb = CFUNCTYPE(None, c_void_p, c_int)
+class transform_res(Structure):
+    _fields_ = [
+        ("buf", c_void_p),
+        ("len", c_size_t),
+    ]
+
+_asp_data_cb = CFUNCTYPE(None, POINTER(transform_res))
 
 _esuf = get_config_var('EXT_SUFFIX')
 if not _esuf:

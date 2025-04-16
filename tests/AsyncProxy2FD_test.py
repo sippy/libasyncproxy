@@ -1,24 +1,33 @@
 import socket
 import unittest
 from ctypes import string_at, memmove
-from libasyncproxy.AsyncProxy import AsyncProxy2FD
+from libasyncproxy.AsyncProxy import AsyncProxy2FD, transform_res
 
 class NosyProxy(AsyncProxy2FD):
-    def in2out(self, ptr, length):
-        # Read original data from the pointer
+    def in2out(self, res_p):
+        # unpack the struct
+        tr = res_p.contents
+        ptr, length = tr.buf, tr.len
+        # read, transform, write back
         original = string_at(ptr, length)
-        # Transform data to uppercase (note: transformation must retain length)
-        transformed = original.upper()
+        # Transform data to uppercase
+        length -= 1
+        transformed = original.upper()[:length]
         memmove(ptr, transformed, length)
         print("in2out hook: transformed", original, "to", transformed)
+        tr.len = length
 
-    def out2in(self, ptr, length):
-        # Read original data from the pointer
-        original = string_at(ptr, length)
-        # Reverse the data bytes (again, ensuring the length remains unchanged)
-        transformed = original[::-1]
+    def out2in(self, res_p):
+        # unpack the struct
+        tr = res_p.contents
+        ptr, length = tr.buf, tr.len
+        # read, transform, write back
+        original    = string_at(ptr, length)
+        length -= 1
+        transformed = original[::-1][1:]
         memmove(ptr, transformed, length)
         print("out2in hook: transformed", original, "to", transformed)
+        tr.len = length
 
 class AsyncProxy2FDTest(unittest.TestCase):
     def test_AsyncProxy(self):
@@ -45,7 +54,7 @@ class AsyncProxy2FDTest(unittest.TestCase):
 
         server_received = server_socket.recv(1024)
         print("Server received:", server_received.decode())
-        self.assertEqual(client_message.upper(), server_received)
+        self.assertEqual(client_message.upper()[:-1], server_received)
 
         # Now send a message from server back to client.
         server_message = b"Hello from Server!"
@@ -54,7 +63,7 @@ class AsyncProxy2FDTest(unittest.TestCase):
 
         client_received = client_socket.recv(1024)
         print("Client received:", client_received.decode())
-        self.assertEqual(server_message[::-1], client_received)
+        self.assertEqual(server_message[::-1][1:], client_received)
 
         # Shutdown the proxy worker and cleanup.
         proxy_fd.join(shutdown=True)

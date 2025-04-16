@@ -277,12 +277,15 @@ asyncproxy_run(void *args)
                     eidx = i;
                     goto out;
                 }
-                if (ap->transform[i] != NULL) {
+                pthread_mutex_lock(&ap->mutex);
+                void (*transform)(void *, int) = ap->transform[i];
+                pthread_mutex_unlock(&ap->mutex);
+                if (transform != NULL) {
 #if defined(PYTHON_AWARE)
                     PyGILState_STATE gstate;
                     gstate = PyGILState_Ensure();
 #endif
-                    ap->transform[i](BUF_P(&bufs[i]), r.len);
+                    transform(BUF_P(&bufs[i]), r.len);
 #if defined(PYTHON_AWARE)
                     PyGILState_Release(gstate);
 #endif

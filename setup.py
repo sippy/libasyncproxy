@@ -51,7 +51,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 kwargs = {'name':'libasyncproxy',
-      'version':'0.1',
+      'version':'1.0',
       'description':'Background TCP proxy for async IO',
       'long_description': long_description,
       'long_description_content_type': "text/markdown",

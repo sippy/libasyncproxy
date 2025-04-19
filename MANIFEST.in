@@ -1,0 +1,2 @@
+include src/Symbol.map src/asp_iostats.h src/asp_sock.So src/asp_sock.c src/asp_sock.h src/asyncproxy.So src/asyncproxy.c src/asyncproxy.h
+include README.md

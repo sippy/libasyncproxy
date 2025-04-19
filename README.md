@@ -54,7 +54,7 @@ pip install libasyncproxy/
 
 ## Usage
 
-### asyncproxy — `AsyncProxy2FD` Example
+### asyncproxy -- `AsyncProxy2FD` Example
 
 This example shows how to set up a bidirectional relay between two socket pairs using `AsyncProxy2FD`. Data sent on one end is forwarded to the other, and vice versa.
 
@@ -94,7 +94,7 @@ for sock in (client_socket, proxy_in, proxy_out, server_socket):
     sock.close()
 ```
 
-### asyncproxy — `TCPProxy` Example
+### asyncproxy -- `TCPProxy` Example
 
 This example shows how to set up a TCP proxy accepting connections on
 `localhost:8080` and forwarding it to `www.google.com:80`.
@@ -124,7 +124,7 @@ for _ in (1, 2):
 proxy.shutdown()
 ```
 
-### asyncproxy — `AdvancedAsyncProxy2FD` Example
+### asyncproxy -- Advanced `AsyncProxy2FD` Example
 
 This example shows how to subclass `AsyncProxy2FD` to inspect and modify data in transit using custom `in2out` and `out2in` hooks.
 

@@ -26,21 +26,23 @@ asp_sock_recv(struct asp_sock *asp, void *buf, size_t len)
      int update_stats;
 
      update_stats = 0;
-     pthread_mutex_lock(&asp->mutex);
      r.len = recv(asp->fd, buf, len, 0);
      if (r.len > 0) {
+         pthread_mutex_lock(&asp->mutex);
          asp->stats.in.nops++;
          asp->stats.in.btotal += r.len;
          if (asp->on_stats_update != NULL) {
              tstats = asp->stats;
              update_stats = 1;
+         } else {
+             pthread_mutex_unlock(&asp->mutex);
          }
      } else {
          r.errnom = errno;
      }
-     pthread_mutex_unlock(&asp->mutex);
      if (update_stats) {
          asp->on_stats_update(&tstats);
+         pthread_mutex_unlock(&asp->mutex);
      }
      return (r);
 }
@@ -50,12 +52,12 @@ asp_sock_send(struct asp_sock *asp, const void *msg, size_t len)
 {
      ssize_t rlen;
 
-     pthread_mutex_lock(&asp->mutex);
      rlen = send(asp->fd, msg, len, 0);
      if (rlen > 0) {
+         pthread_mutex_lock(&asp->mutex);
          asp->stats.out.nops++;
          asp->stats.out.btotal += rlen;
+         pthread_mutex_unlock(&asp->mutex);
      }
-     pthread_mutex_unlock(&asp->mutex);
      return (rlen);
 }

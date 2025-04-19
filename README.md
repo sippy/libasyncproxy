@@ -45,6 +45,12 @@ Forwarder if that fails to load or initialize.
 We use this library to allow applications to be redirected to one of several
 available DB replicas and re-routed instantly if the configuration changes.
 
+## Install Python module from PyPy:
+
+```
+pip install asyncproxy
+```
+
 ## Build and Install Python module from source code:
 
 ```

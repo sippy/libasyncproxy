@@ -1,7 +1,7 @@
 import socket
 import unittest
 from ctypes import string_at, memmove
-from libasyncproxy.AsyncProxy import AsyncProxy2FD, transform_res
+from asyncproxy.AsyncProxy import AsyncProxy2FD, transform_res
 
 class NosyProxy(AsyncProxy2FD):
     def in2out(self, res_p):

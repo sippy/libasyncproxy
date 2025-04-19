@@ -16,7 +16,7 @@ lap_srcs = ['src/asyncproxy.c', 'src/asp_sock.c']
 
 extra_compile_args = ['-Wall', '-DPYTHON_AWARE']
 if not is_win:
-    extra_compile_args += ['--std=c11', '-Wno-zero-length-array',
+    extra_compile_args += ['--std=c11', '-Wno-zero-length-array', '-Isrc/',
                            '-flto', '-pedantic']
 else:
     extra_compile_args.append('/std:clatest')
@@ -35,12 +35,14 @@ else:
     extra_compile_args.extend(nodebug_opts)
     extra_link_args.extend(nodebug_opts)
 
+if not is_mac and not is_win:
+    extra_link_args.append('-Wl,--version-script=src/Symbol.map')
+elif is_mac:
+    extra_link_args.extend(['-undefined', 'dynamic_lookup'])
+
 module1 = Extension(LAP_MOD_NAME, sources = lap_srcs, \
     extra_link_args = extra_link_args, \
     extra_compile_args = extra_compile_args)
-
-if not is_mac and not is_win:
-    extra_link_args.append('-Wl,--version-script=src/Symbol.map')
 
 def get_ex_mod():
     if 'NO_PY_EXT' in os.environ:
@@ -50,7 +52,7 @@ def get_ex_mod():
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-kwargs = {'name':'libasyncproxy',
+kwargs = {'name':'asyncproxy',
       'version':'1.0',
       'description':'Background TCP proxy for async IO',
       'long_description': long_description,
@@ -58,8 +60,8 @@ kwargs = {'name':'libasyncproxy',
       'author':'Maksym Sobolyev',
       'author_email':'sobomax@sippysoft.com',
       'url':'https://github.com/sippy/libasyncproxy.git',
-      'packages':['libasyncproxy',],
-      'package_dir':{'libasyncproxy':'python'},
+      'packages':['asyncproxy',],
+      'package_dir':{'asyncproxy':'python'},
       'ext_modules': get_ex_mod(),
       'classifiers': [
             'License :: OSI Approved :: BSD License',

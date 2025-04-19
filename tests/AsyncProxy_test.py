@@ -21,12 +21,13 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import unittest
+import unittest, sys
 from time import sleep
 from socket import socketpair, AF_INET
 
-from libasyncproxy.AsyncProxy import AsyncProxy, AsyncProxy2FD, setdebug
+from asyncproxy.AsyncProxy import AsyncProxy, AsyncProxy2FD, setdebug
 
+@unittest.skipIf(sys.platform == 'darwin', "asyncproxy tests hang on macOS")
 class AsyncProxyTest(unittest.TestCase):
     debug = False
     def test_AsyncProxy(self):

@@ -49,6 +49,8 @@ int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
 void asyncproxy_set_i2o(void *, void (*)(struct transform_res *));
 void asyncproxy_set_o2i(void *, void (*)(struct transform_res *));
+void asyncproxy_set_onconnect(void *, void (*)(struct transform_res *, size_t));
+void asyncproxy_set_ondisconnect(void *, void (*)(void));
 void asyncproxy_join(void *, int);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);

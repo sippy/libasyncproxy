@@ -65,6 +65,8 @@ class transform_res(Structure):
     ]
 
 _asp_data_cb = CFUNCTYPE(None, POINTER(transform_res))
+_asp_onconnect_cb = CFUNCTYPE(None, POINTER(transform_res), c_size_t)
+_asp_ondisconnect_cb = CFUNCTYPE(None)
 
 _esuf = get_config_var('EXT_SUFFIX')
 if not _esuf:
@@ -95,6 +97,8 @@ _asp.asyncproxy_isalive.restype = c_int
 _asp.asyncproxy_dtor.argtypes = [c_void_p,]
 _asp.asyncproxy_set_i2o.argtypes = [c_void_p, _asp_data_cb]
 _asp.asyncproxy_set_o2i.argtypes = [c_void_p, _asp_data_cb]
+_asp.asyncproxy_set_onconnect.argtypes = [c_void_p, _asp_onconnect_cb]
+_asp.asyncproxy_set_ondisconnect.argtypes = [c_void_p, _asp_ondisconnect_cb]
 _asp.asyncproxy_join.argtypes = [c_void_p, c_int]
 _asp.asyncproxy_describe.argtypes = [c_void_p,]
 _asp.asyncproxy_describe.restype = c_char_p
@@ -105,25 +109,33 @@ _asp.asyncproxy_setdebug.argtypes = [c_int,]
 def setdebug(level):
     _asp.asyncproxy_setdebug(level)
 
-class AsyncProxyBase(object):
+class AsyncProxyBase():
     _hndl = None
     __asp = None
-    in2out = None
-    out2in = None
+    in2out: callable = None
+    out2in: callable = None
+    on_connect: callable = None
+    disc_cb: callable = None
 
     def __init__(self, args:asyncproxy_ctor_args):
         self._hndl = _asp.asyncproxy_ctor(byref(args))
         if not bool(self._hndl):
             raise Exception('asyncproxy_ctor() failed')
         self.__asp = _asp
+
+    def start(self):
         if self.in2out is not None:
             self._in2out_cb = _asp_data_cb(self.in2out)
             self.__asp.asyncproxy_set_i2o(self._hndl, self._in2out_cb)
         if self.out2in is not None:
             self._out2in_cb = _asp_data_cb(self.out2in)
             self.__asp.asyncproxy_set_o2i(self._hndl, self._out2in_cb)
-
-    def start(self):
+        if self.on_connect is not None:
+            self._on_connect_cb = _asp_onconnect_cb(self.on_connect)
+            self.__asp.asyncproxy_set_onconnect(self._hndl, self._on_connect_cb)
+        if self.disc_cb is not None:
+            self._on_disconnect_cb = _asp_ondisconnect_cb(self.disc_cb)
+            self.__asp.asyncproxy_set_ondisconnect(self._hndl, self._on_disconnect_cb)
         if int(self.__asp.asyncproxy_start(self._hndl)) != 0:
             raise Exception('asyncproxy_start() failed')
 

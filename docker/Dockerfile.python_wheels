@@ -8,9 +8,15 @@ USER root
 
 WORKDIR /src
 
+RUN dnf install -y rustc cargo openssl-devel libffi-devel pkgconf pkgconf-pkg-config && dnf clean all
+
 ARG TARGETPLATFORM
 ARG PY_VER
 ARG PYTHON_CMD
+
+ENV PKG_CONFIG=/usr/bin/pkgconf
+ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+RUN ${PKG_CONFIG} --exists openssl libffi
 
 RUN --mount=type=bind,source=scripts/build,target=scripts/build \
  sh -x scripts/build/install_depends_wheels.sh
@@ -23,6 +29,7 @@ RUN auditwheel repair dist/*.whl --wheel-dir dist_out
 
 FROM build AS test
 RUN ${PYTHON_CMD} -m pip install dist_out/*.whl
+RUN ${PYTHON_CMD} -m pip install --upgrade -r tests/requirements.txt
 RUN ${PYTHON_CMD} -m unittest discover -v -s tests -p '*.py'
 RUN date > dist_out/test_done.ts
 

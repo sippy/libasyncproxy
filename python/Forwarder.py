@@ -38,12 +38,13 @@ class Forwarder(Thread):
     source = None
     state = '__init__'
     state_lock = None
+    disc_cb: callable = None
 
     def __init__(self, source, sink_addr, bindhost_out = None, logger = None):
         self.state_lock = Lock()
         self.port1 = source.getpeername()[1]
         self.port2 = None
-        Thread.__init__(self)
+        super().__init__()
         self.source = source
         self.sink_addr = sink_addr
         self.bindhost_out = bindhost_out
@@ -175,6 +176,9 @@ class Forwarder(Thread):
             self.shutdown()
             self.log('shutting down channel')
             raise e
+        finally:
+            if self.disc_cb is not None:
+                self.disc_cb()
         self.setstate('self.shutdown(autoshutdown = True) #2')
         self.shutdown()
 

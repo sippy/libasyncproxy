@@ -200,7 +200,7 @@ asyncproxy_run(void *args)
 
     ap = (struct asyncproxy *)args;
     if (ap->debug > 1) {
-        fprintf(stderr, "asyncproxy_run(%p)\n", ap);
+        fprintf(stderr, "asyncproxy_run(%p)\n", (void *)ap);
         fflush(stderr);
     }
     pthread_mutex_lock(&ap->mutex);
@@ -239,7 +239,7 @@ asyncproxy_run(void *args)
         pthread_mutex_unlock(&ap->mutex);
         if (state != AP_STATE_RUN) {
             if (ap->debug > 2) {
-                fprintf(stderr, "asyncproxy_run(%p): exit on state %d\n", ap, state);
+                fprintf(stderr, "asyncproxy_run(%p): exit on state %d\n", (void *)ap, state);
                 fflush(stderr);
             }
             break;
@@ -250,7 +250,7 @@ asyncproxy_run(void *args)
                 fflush(stderr);
         }
         if (ap->debug > 3) {
-            fprintf(stderr, "asyncproxy_run(%p): poll() = %d\n", ap, n);
+            fprintf(stderr, "asyncproxy_run(%p): poll() = %d\n", (void *)ap, n);
             fflush(stderr);
         }
         if (n <= 0) {
@@ -260,14 +260,15 @@ asyncproxy_run(void *args)
         for (i = 0; i < 2; i++) {
             if (ap->debug > 0) {
                 if (ap->debug > 3) {
-                    fprintf(stderr, "asyncproxy_run(%p): pfds[%d] = {.events = %d, .revents = %d}\n", ap, i, pfds[i].events, pfds[i].revents);
+                    fprintf(stderr, "asyncproxy_run(%p): pfds[%d] = {.events = %d, .revents = %d}\n",
+                      (void *)ap, i, pfds[i].events, pfds[i].revents);
                     fflush(stderr);
                 }
                 assert((pfds[i].revents & POLLNVAL) == 0);
             }
             if (pfds[i].revents & POLLHUP) {
                 if (ap->debug > 1) {
-                    fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", ap, pfds[i].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", (void *)ap, pfds[i].fd);
                     fflush(stderr);
                 }
                 eidx = i;
@@ -279,13 +280,13 @@ asyncproxy_run(void *args)
                 r = asp_sock_recv(asps[i], BUF_P(&bufs[i]), BUF_FREE(&bufs[i]));
                 if (ap->debug > 2) {
                     assert(pfds[i].fd == asps[i]->fd);
-                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", ap, r.len, pfds[i].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", (void *)ap, r.len, pfds[i].fd);
                     fflush(stderr);
                 }
                 if (r.len <= 0) {
                     if (ap->debug > 1) {
                         fprintf(stderr, "asyncproxy_run(%p): fd %d recv "
-                          "failed with error %d, out\n", ap, pfds[i].fd,
+                          "failed with error %d, out\n", (void *)ap, pfds[i].fd,
                           r.errnom);
                         fflush(stderr);
                     }
@@ -335,7 +336,7 @@ asyncproxy_run(void *args)
                 rlen = asp_sock_send(asps[j], bufs[i].data, bufs[i].len);
                 if (ap->debug > 2) {
                     assert(pfds[j].fd == asps[j]->fd);
-                    fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", ap, rlen, pfds[j].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", (void *)ap, rlen, pfds[j].fd);
                     fflush(stderr);
                 }
                 if (rlen < (ssize_t)bufs[i].len) {
@@ -373,7 +374,7 @@ out:
     pthread_mutex_unlock(&ap->mutex);
 
     if (ap->debug > 0) {
-        fprintf(stderr, "cease asyncproxy_run(%p)\n", ap);
+        fprintf(stderr, "cease asyncproxy_run(%p)\n", (void *)ap);
         fflush(stderr);
     }
 
@@ -407,7 +408,7 @@ asyncproxy_ctor(const struct asyncproxy_ctor_args *acap)
         return (NULL);
     }
     if (dbg_level > 0) {
-        fprintf(stderr, "%p\n", ap);
+        fprintf(stderr, "%p\n", (void *)ap);
         fflush(stderr);
     }
     memset(ap, '\0', sizeof(struct asyncproxy));
@@ -492,7 +493,7 @@ finalize:
         goto e3;
     }
 
-#if defined(PYTHON_AWARE)
+#if defined(PYTHON_AWARE) && PY_VERSION_HEX < 0x03070000
     PyEval_InitThreads();
 #endif
 
@@ -517,7 +518,7 @@ asyncproxy_start(void *_ap)
 
     ap = (struct asyncproxy *)_ap;
     if (ap->debug > 0) {
-        fprintf(stderr, "asyncproxy_start(%p)\n", ap);
+        fprintf(stderr, "asyncproxy_start(%p)\n", (void *)ap);
         fflush(stderr);
     }
     pthread_mutex_lock(&ap->mutex);
@@ -545,7 +546,7 @@ asyncproxy_dtor(void *_ap)
 
     ap = (struct asyncproxy *)_ap;
     if (ap->debug > 0) {
-        fprintf(stderr, "asyncproxy_dtor(%p)\n", ap);
+        fprintf(stderr, "asyncproxy_dtor(%p)\n", (void *)ap);
         fflush(stderr);
     }
 
@@ -573,7 +574,7 @@ asyncproxy_isalive(void *_ap)
     pthread_mutex_unlock(&ap->mutex);
 
     if (ap->debug > 1 && ap->last_seen_alive != rval) {
-        fprintf(stderr, "asyncproxy_isalive(%p) = %d->%d\n", ap, ap->last_seen_alive, rval);
+        fprintf(stderr, "asyncproxy_isalive(%p) = %d->%d\n", (void *)ap, ap->last_seen_alive, rval);
         fflush(stderr);
         ap->last_seen_alive = rval;
     }

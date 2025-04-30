@@ -24,10 +24,13 @@ extra_link_args = ['-flto'] if not is_win else []
 
 debug_opts = ('-g3', '-O0')
 nodebug_opts = ('-DNO_DEBUG',)
-if not is_mac and not is_win:
-    nodebug_opts += ('-march=native', '-O3')
-else:
-    nodebug_opts += ('-O3',) if not is_win else ()
+nodebug_opts += ('-O3',) if not is_win else ()
+
+if get_platform() == 'linux-x86_64':
+    # This is to disable x86-64-v2, see
+    # https://github.com/pypa/manylinux/issues/1725
+    extra_compile_args.append('-march=x86-64')
+
 if False:
     extra_compile_args.extend(debug_opts)
     extra_link_args.extend(debug_opts)
@@ -63,8 +66,8 @@ kwargs = {'name':'asyncproxy',
       'packages':['asyncproxy',],
       'package_dir':{'asyncproxy':'python'},
       'ext_modules': get_ex_mod(),
+      'license': 'BSD-2-Clause',
       'classifiers': [
-            'License :: OSI Approved :: BSD License',
             'Operating System :: POSIX',
             'Programming Language :: C',
             'Programming Language :: Python'

@@ -21,5 +21,11 @@ COPY --exclude=.git --exclude=.github --exclude=docker --exclude=dist \
 RUN ${PYTHON_CMD} -m build --wheel
 RUN auditwheel repair dist/*.whl --wheel-dir dist_out
 
+FROM build AS test
+RUN ${PYTHON_CMD} -m pip install dist_out/*.whl
+RUN ${PYTHON_CMD} -m unittest discover -v -s tests -p '*.py'
+RUN date > dist_out/test_done.ts
+
 FROM scratch AS export
 COPY --from=build /src/dist_out /dist
+COPY --from=test /src/dist_out/test_done.ts /dist

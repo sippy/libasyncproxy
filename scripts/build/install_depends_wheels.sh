@@ -2,6 +2,8 @@
 
 set -e
 
-python${PY_VER} -m ensurepip --upgrade
-python${PY_VER} -m pip install --upgrade pip
-python${PY_VER} -m pip install --upgrade build setuptools wheel auditwheel
+PYTHON_CMD="${PYTHON_CMD:-"python${PY_VER}"}"
+
+${PYTHON_CMD} -m ensurepip --upgrade
+${PYTHON_CMD} -m pip install --upgrade pip
+${PYTHON_CMD} -m pip install --upgrade build setuptools wheel auditwheel

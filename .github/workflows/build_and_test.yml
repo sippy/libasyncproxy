@@ -82,12 +82,13 @@ jobs:
       packages: write
     env:
       PY_VER: ${{ matrix.python-version }}
-      BASE_IMAGE: quay.io/pypa/manylinux_2_28:latest
+      BASE_IMAGE: quay.io/pypa/manylinux_${{ matrix.mnl-version }}:latest
       GHCR_REPO: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.8', '3.9', '3.11', '3.12']
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        mnl-version: ['2_28', '2_34']
     steps:
     - name: Set up Python ${{ env.PY_VER }}
       uses: actions/setup-python@v5
@@ -118,7 +119,7 @@ jobs:
           sort -u | grep -v unknown | paste -sd ','`"
         GIT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
         GIT_BRANCH="${GIT_BRANCH#refs/tags/}"
-        BUILD_IMAGE="${GHCR_REPO}:${GIT_BRANCH}-py${PY_VER}"
+        BUILD_IMAGE="${GHCR_REPO}:${GIT_BRANCH}-py${PY_VER}-mnl${{ matrix.mnl-version }}"
         test "${{ github.event_name }}" != 'pull_request' && \
           CACHE_SPEC="type=registry,ref=${BUILD_IMAGE}-buildcache" || \
           CACHE_SPEC="gha"
@@ -150,7 +151,7 @@ jobs:
     - name: Upload built wheels
       uses: actions/upload-artifact@v4
       with:
-        name: dist-${{ env.PY_VER }}
+        name: dist-py${{ env.PY_VER }}-mnl${{ matrix.mnl-version }}
         path: dist
 
   publish_pypi:
@@ -187,7 +188,7 @@ jobs:
       run: python setup.py build sdist
 
     - name: Show context tree
-      run: ls -R dist
+      run: ls -lR dist
 
     - name: Publish package distributions to PyPI
       if: github.event_name == 'release' && github.event.action == 'created'

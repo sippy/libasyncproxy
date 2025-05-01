@@ -10,15 +10,17 @@ WORKDIR /src
 
 ARG TARGETPLATFORM
 ARG PY_VER
-RUN --mount=type=bind,source=scripts/build,target=scripts/build \
- sh -x scripts/build/install_depends_yum.sh
+
+ARG PY_SVER="3${PY_VER#3.}"
+ARG PYTHON_CMD="/opt/python/cp${PY_SVER}-cp${PY_SVER}/bin/python"
+
 RUN --mount=type=bind,source=scripts/build,target=scripts/build \
  sh -x scripts/build/install_depends_wheels.sh
 
 COPY --exclude=.git --exclude=.github --exclude=docker --exclude=dist \
  --exclude=scripts . .
 
-RUN python${PY_VER} -m build --wheel
+RUN ${PYTHON_CMD} -m build --wheel
 RUN auditwheel repair dist/*.whl --wheel-dir dist_out
 
 FROM scratch AS export

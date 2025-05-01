@@ -28,23 +28,10 @@ import traceback
 from time import sleep, strftime
 from errno import EADDRINUSE, ECONNRESET, EINTR
 
-try:
-    from ctypes import ArgumentError
-    from .ForwarderFast import ForwarderFast as _Forwarder
-    from .Forwarder import Forwarder as _Forwarder_safe
-    def Forwarder(*a, **kwa):
-        try: return _Forwarder(*a, **kwa)
-        except (TypeError, ArgumentError):
-            return _Forwarder_safe(*a, **kwa)
-except:
-    from .Forwarder import Forwarder
+from .ForwarderFast import ForwarderFast as Forwarder
 
-class TCPProxyBase(Thread):
-    daemon = True
-    dead = False
+class TCPProxyBase():
     debug = False
-    forwarders = None
-    allowed_ips: tuple = None
     bindhost_out = None
     disc_cb:callable = None
 
@@ -75,50 +62,11 @@ class TCPProxyBase(Thread):
                 sock.bind(bindaddr)
         self.port = port if (port != 0) else sock.getsockname()[1]
         self.sock = sock
-        self.forwarders = []
 
     def dprint(self, get_msg):
         if not self.debug: return
         sys.stderr.write(f'{get_msg()}\n')
         sys.stderr.flush()
-
-    def spawn_forwarder(self, newsock):
-        daddr = (self.newhost, self.newport) if (self.newaf != socket.AF_UNIX) else self.newhost
-        try:
-            fwd = Forwarder(newsock, (daddr, self.newaf), self.bindhost_out, logger = self.logger)
-            self.forwarders.append(fwd)
-            fwd.start()
-        except Exception:
-            if self.dead:
-                return
-            dst = f'{self.newhost}:{self.newport}' if (self.newaf != socket.AF_UNIX) else f'"{self.newhost}"'
-            self.log(f'setting up redirection to {dst} failed')
-            self.log('-' * 70)
-            self.log(traceback.format_exc())
-            self.log('-' * 70, True)
-            sleep(0.01)
-            return
-
-        forwarders = []
-        for fwd in self.forwarders:
-            if fwd.isAlive():
-                forwarders.append(fwd)
-            else:
-                self.dprint(lambda: f'joinning forwarder: {fwd.describe()}')
-                fwd.join()
-                self.dprint(lambda: f'joinning forwarder done: {fwd.describe()}')
-        self.forwarders = forwarders
-
-    def shutdown(self):
-        self.dead = True
-        while len(self.forwarders) > 0:
-            forwarder = self.forwarders.pop()
-            self.dprint(lambda: f'shutting down forwarder: {forwarder.describe()}')
-            if forwarder.isAlive():
-                forwarder.shutdown()
-            forwarder.join()
-        self.sock.close()
-        self.join()
 
     def log(self, msg, flush = False):
         msg = 'TCPProxy[%d]: %s' % (hash(self), msg)
@@ -129,24 +77,37 @@ class TCPProxyBase(Thread):
             if flush:
                 sys.stdout.flush()
 
-class TCPProxyActive(TCPProxyBase):
+    def daddr(self):
+        return (self.newhost, self.newport) if (self.newaf != socket.AF_UNIX) else self.newhost
+
+    def dtarg(self):
+        return (self.daddr(), self.newaf)
+
+class TCPProxyActive(Forwarder, TCPProxyBase):
     destaddr: tuple
     def __init__(self, destaddr, *a, **kwa):
-        super().__init__(0, *a, **kwa)
-        self.destaddr = destaddr
+        TCPProxyBase.__init__(self, 0, *a, **kwa)
+        self.sock.setblocking(False)
+        try:
+            self.sock.connect(destaddr)
+        except BlockingIOError:
+            pass
+        Forwarder.__init__(self, self.sock, self.dtarg(), self.bindhost_out,
+          logger = self.logger, source_peer_port = destaddr[1])
 
-    def run(self):
-        self.sock.connect(self.destaddr)
-        self.spawn_forwarder(self.sock)
-        self.forwarders[0].join()
-        if self.disc_cb is not None:
-            # pylint: disable-next=not-callable
-            self.disc_cb()
-            self.disc_cb = None
+    def shutdown(self):
+        super().shutdown()
+        self.join()
 
-class TCPProxy(TCPProxyBase):
+class TCPProxy(TCPProxyBase, Thread):
+    daemon = True
+    dead = False
+    forwarders = None
+    allowed_ips: tuple = None
+
     def __init__(self, *a, **kwa):
         super().__init__(*a, **kwa)
+        self.forwarders = []
         self.sock.listen(500)
 
     def access_check(self, address):
@@ -196,8 +157,50 @@ class TCPProxy(TCPProxyBase):
                     continue
                 self.log("got socket.error exception: %s" % str(e))
                 continue
-            self.spawn_forwarder(newsock)
+            try:
+                self.spawn_forwarder(newsock)
+            except Exception:
+                newsock.shutdown(socket.SHUT_RDWR)
+                newsock.close()
+                sleep(0.01)
+                continue
         if self.disc_cb is not None:
             # pylint: disable-next=not-callable
             self.disc_cb()
             self.disc_cb = None
+
+    def spawn_forwarder(self, newsock):
+        try:
+            fwd = Forwarder(newsock, self.dtarg(), self.bindhost_out, logger = self.logger)
+            self.forwarders.append(fwd)
+            fwd.start()
+        except Exception:
+            if self.dead:
+                raise
+            dst = f'{self.newhost}:{self.newport}' if (self.newaf != socket.AF_UNIX) else f'"{self.newhost}"'
+            self.log(f'setting up redirection to {dst} failed')
+            self.log('-' * 70)
+            self.log(traceback.format_exc())
+            self.log('-' * 70, True)
+            raise
+
+        forwarders = []
+        for fwd in self.forwarders:
+            if fwd.isAlive():
+                forwarders.append(fwd)
+            else:
+                self.dprint(lambda: f'joinning forwarder: {fwd.describe()}')
+                fwd.join()
+                self.dprint(lambda: f'joinning forwarder done: {fwd.describe()}')
+        self.forwarders = forwarders
+
+    def shutdown(self):
+        self.dead = True
+        while len(self.forwarders) > 0:
+            forwarder = self.forwarders.pop()
+            self.dprint(lambda: f'shutting down forwarder: {forwarder.describe()}')
+            if forwarder.isAlive():
+                forwarder.shutdown()
+            forwarder.join()
+        self.sock.close()
+        self.join()

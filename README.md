@@ -33,14 +33,9 @@ libasyncproxy.
 
 ForwarderFast: super-set of AsyncProxy with some utility methods.
 
-Forwarder: same API and functionality as ForwarderFast, but without using
-AsyncProxy C module (i.e. python thread doing i/o). Mostly for backward
-compatibility when we need to break library API.
-
 TCPProxy: set of high-level classes to accept and manage inbound connections
 and initiate/tear-down outbound as needed, connecting them using forwarders
-once established. Will use ForwarderFast if available, falling back to the
-Forwarder if that fails to load or initialize.
+once established.
 
 ## Use Cases
 

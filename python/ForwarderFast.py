@@ -22,6 +22,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import socket
+from errno import ECONNRESET, ENOTCONN
 
 from .AsyncProxy import AsyncProxy, setdebug as AP_setdebug
 
@@ -35,11 +36,14 @@ class ForwarderFast(AsyncProxy):
     source = None
     state = '__init__'
 
-    def __init__(self, source, sink_addr, bindhost_out = None, logger = None):
+    def __init__(self, source, sink_addr, bindhost_out = None, logger = None, source_peer_port = None):
         addr, port = (sink_addr[0], 0) if (sink_addr[1] == socket.AF_UNIX) else sink_addr[0]
         super().__init__(source.fileno(), addr, port, sink_addr[1], bindhost_out)
         self.source = source
-        self.port1 = source.getpeername()[1]
+        if source_peer_port is None:
+            self.port1 = self.source.getpeername()[1]
+        else:
+            self.port1 = source_peer_port
         if self.debug:
             AP_setdebug(2)
 
@@ -52,9 +56,14 @@ class ForwarderFast(AsyncProxy):
             return
         self.dead = True
         if self.source != None:
-            self.source.shutdown(socket.SHUT_RDWR)
-            self.source.close()
-            self.source = None
+            try:
+                self.source.shutdown(socket.SHUT_RDWR)
+            except OSError as ex:
+                if ex.errno not in (ECONNRESET, ENOTCONN):
+                    raise
+            finally:
+                self.source.close()
+                self.source = None
 
     def join(self):
         super().join(shutdown=False)

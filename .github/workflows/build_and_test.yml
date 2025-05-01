@@ -1,5 +1,3 @@
-# This is a basic workflow to help you get started with Actions
-
 name: Build, Test & Publush
 
 # Controls when the action will run.
@@ -75,121 +73,17 @@ jobs:
         python -m unittest discover -v -s tests -p '*.py'
       shell: bash
 
-  build_bin_wheels:
-    needs: build_and_test_python
-    runs-on: ubuntu-latest
+  build_wheels:
     permissions:
       packages: write
-    env:
-      PY_VER: ${{ matrix.python-version }}
-      BASE_IMAGE: quay.io/pypa/manylinux_${{ matrix.mnl-version }}:latest
-      GHCR_REPO: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
-        mnl-version: ['2_28', '2_34']
-    steps:
-    - name: Set up Python ${{ env.PY_VER }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PY_VER }}
+    needs: build_and_test_python
+    uses: sippy/cimagic/.github/workflows/BuildPythonWheels.yml@v1
 
-    - uses: actions/checkout@v4
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      if: github.event_name != 'pull_request'
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set dynamic environment
-      id: set-env
-      run: |
-        PLATFORMS="`docker manifest inspect ${{ env.BASE_IMAGE }} | \
-          jq -r '.manifests[] | "\(.platform.os)/\(.platform.architecture)\(if .platform.variant != null then "/\(.platform.variant)" else "" end)"' | \
-          sort -u | grep -v unknown | paste -sd ','`"
-        GIT_BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
-        GIT_BRANCH="${GIT_BRANCH#refs/tags/}"
-        BUILD_IMAGE="${GHCR_REPO}:${GIT_BRANCH}-py${PY_VER}-mnl${{ matrix.mnl-version }}"
-        test "${{ github.event_name }}" != 'pull_request' && \
-          CACHE_SPEC="type=registry,ref=${BUILD_IMAGE}-buildcache" || \
-          CACHE_SPEC="gha"
-        echo "Platforms: ${PLATFORMS}"
-        echo "Build Image: ${BUILD_IMAGE}"
-        echo "PLATFORMS=${PLATFORMS}" >> $GITHUB_ENV
-        echo "CACHE_SPEC=${CACHE_SPEC}" >> $GITHUB_ENV
-
-    - name: Build Binary Wheels
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        file: ./docker/Dockerfile.python_wheels
-        build-args: |
-          BASE_IMAGE=${{ env.BASE_IMAGE }}
-          PY_VER=${{ env.PY_VER }}
-        platforms: ${{ env.PLATFORMS }}
-        push: false
-        outputs: type=local,dest=dist_out
-        cache-from: ${{ env.CACHE_SPEC }}
-        cache-to: ${{ env.CACHE_SPEC }},mode=max
-
-    - name: Collect Wheels
-      run: |
-        mkdir dist
-        mv `find dist_out -type f -name \*.whl` dist
-        rm -r dist_out
-
-    - name: Upload built wheels
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist-py${{ env.PY_VER }}-mnl${{ matrix.mnl-version }}
-        path: dist
-
-  publish_pypi:
-    needs: build_bin_wheels
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/asyncproxy
+  publish_all_wheels:
+    needs: build_wheels
     permissions:
-      id-token: write
       actions: read
       contents: read
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Download all wheel artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: dist
-        pattern: dist-*
-        merge-multiple: true
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install --upgrade build setuptools wheel
-
-    - name: build
-      run: python setup.py build sdist
-
-    - name: Show context tree
-      run: ls -lR dist
-
-    - name: Publish package distributions to PyPI
-      if: github.event_name == 'release' && github.event.action == 'created'
-      uses: pypa/gh-action-pypi-publish@release/v1
+    uses: sippy/cimagic/.github/workflows/PublishWheels.yml@v1
+    with:
+      pypi_project: asyncproxy

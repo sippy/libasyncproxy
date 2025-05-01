@@ -10,9 +10,7 @@ WORKDIR /src
 
 ARG TARGETPLATFORM
 ARG PY_VER
-
-ARG PY_SVER="3${PY_VER#3.}"
-ARG PYTHON_CMD="/opt/python/cp${PY_SVER}-cp${PY_SVER}/bin/python"
+ARG PYTHON_CMD
 
 RUN --mount=type=bind,source=scripts/build,target=scripts/build \
  sh -x scripts/build/install_depends_wheels.sh

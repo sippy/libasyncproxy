@@ -7,7 +7,7 @@ on:
   pull_request:
 
   release:
-    types: [created]
+    types: [published]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -87,3 +87,9 @@ jobs:
     uses: sippy/cimagic/.github/workflows/PublishWheels.yml@v1
     with:
       pypi_project: asyncproxy
+
+  roll_release:
+    needs: publish_all_wheels
+    permissions:
+      contents: write
+    uses: sippy/cimagic/.github/workflows/RollReleaseDraft.yml@v1

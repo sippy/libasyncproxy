@@ -1,3 +1,5 @@
+[![Build, Test & Publush](https://github.com/sippy/libasyncproxy/actions/workflows/build_and_test.yml/badge.svg)](https://github.com/sippy/libasyncproxy/actions/workflows/build_and_test.yml)
+
 # libasyncproxy
 
 ## Introduction

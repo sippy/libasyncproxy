@@ -84,6 +84,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      id-token: write
     uses: sippy/cimagic/.github/workflows/PublishWheels.yml@v1
     with:
       pypi_project: asyncproxy

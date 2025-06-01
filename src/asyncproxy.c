@@ -266,7 +266,7 @@ asyncproxy_run(void *args)
                 }
                 assert((pfds[i].revents & POLLNVAL) == 0);
             }
-            if (pfds[i].revents & POLLHUP) {
+            if (pfds[i].revents & (POLLHUP | POLLERR)) {
                 if (ap->debug > 1) {
                     fprintf(stderr, "asyncproxy_run(%p): fd %d is gone, out\n", (void *)ap, pfds[i].fd);
                     fflush(stderr);

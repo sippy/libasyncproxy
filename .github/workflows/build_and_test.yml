@@ -81,7 +81,7 @@ jobs:
     permissions:
       packages: write
     needs: build_test_python
-    uses: sippy/cimagic/.github/workflows/BuildPythonWheels.yml@v2
+    uses: sippy/cimagic/.github/workflows/BuildPythonWheels.yml@wip
 
   publish_all_wheels:
     name: Publish Python Wheels

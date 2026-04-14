@@ -65,10 +65,11 @@ class TCPProxyBase(Thread):
         except OSError as oex:
             if oex.errno != EADDRINUSE:
                 raise oex
+            sock.settimeout(0.1)
             try:
                 sock.connect(bindaddr)
                 raise oex
-            except ConnectionRefusedError:
+            except (ConnectionRefusedError, socket.timeout):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
                 sock.bind(bindaddr)

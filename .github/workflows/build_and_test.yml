@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 * * 0"
 
 # added using https://github.com/step-security/secure-repo
 permissions:
@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.15-dev']
         compiler: ['gcc', 'clang']
         os: [macos, ubuntu]
 #        include:
@@ -51,6 +51,8 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Set up Python ${{ matrix.python-version }}
+      env:
+        PIP_NO_CACHE_DIR: 1
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
@@ -81,7 +83,7 @@ jobs:
     permissions:
       packages: write
     needs: build_test_python
-    uses: sippy/cimagic/.github/workflows/BuildPythonWheels.yml@v2
+    uses: sippy/cimagic/.github/workflows/BuildPythonWheels.yml@v3
 
   publish_all_wheels:
     name: Publish Python Wheels
@@ -129,4 +131,4 @@ jobs:
     needs: publish_all_wheels
     permissions:
       contents: write
-    uses: sippy/cimagic/.github/workflows/RollReleaseDraft.yml@v2
+    uses: sippy/cimagic/.github/workflows/RollReleaseDraft.yml@v3

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7-labs
 
 ARG BASE_IMAGE="quay.io/pypa/manylinux_2_28:latest"
-FROM --platform=$TARGETPLATFORM $BASE_IMAGE AS build
+ARG CACHE_IMAGE="scratch"
+FROM --platform=$TARGETPLATFORM $BASE_IMAGE AS base
 LABEL maintainer="Maksym Sobolyev <sobomax@sippysoft.com>"
 
 USER root
@@ -13,6 +14,18 @@ RUN dnf install -y rustc cargo openssl-devel libffi-devel pkgconf pkgconf-pkg-co
 ARG TARGETPLATFORM
 ARG PY_VER
 ARG PYTHON_CMD
+
+ENV CACHE_HOME="/root"
+ENV CACHE_ROOT="${CACHE_HOME}/.cache"
+RUN mkdir -p ${CACHE_ROOT}
+
+FROM ${CACHE_IMAGE} AS cache
+COPY --from=base /root/.cache/ /root/.cache/
+
+FROM base AS build
+COPY --from=cache /root/.cache /root/.cache
+
+RUN find /root/.cache -type f
 
 ENV PKG_CONFIG=/usr/bin/pkgconf
 ENV PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
@@ -35,4 +48,5 @@ RUN date > dist_out/test_done.ts
 
 FROM scratch AS export
 COPY --from=build /src/dist_out /dist
+COPY --from=test /root/.cache /root/.cache
 COPY --from=test /src/dist_out/test_done.ts /dist

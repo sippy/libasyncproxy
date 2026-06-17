@@ -280,7 +280,7 @@ asyncproxy_run(void *args)
                 r = asp_sock_recv(asps[i], BUF_P(&bufs[i]), BUF_FREE(&bufs[i]));
                 if (ap->debug > 2) {
                     assert(pfds[i].fd == asps[i]->fd);
-                    fprintf(stderr, "asyncproxy_run(%p): received %ld bytes from %d\n", (void *)ap, r.len, pfds[i].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): received %zd bytes from %d\n", (void *)ap, (ssize_t)r.len, pfds[i].fd);
                     fflush(stderr);
                 }
                 if (r.len <= 0) {
@@ -336,7 +336,7 @@ asyncproxy_run(void *args)
                 rlen = asp_sock_send(asps[j], bufs[i].data, bufs[i].len);
                 if (ap->debug > 2) {
                     assert(pfds[j].fd == asps[j]->fd);
-                    fprintf(stderr, "asyncproxy_run(%p): sent %ld bytes to %d\n", (void *)ap, rlen, pfds[j].fd);
+                    fprintf(stderr, "asyncproxy_run(%p): sent %zd bytes to %d\n", (void *)ap, (ssize_t)rlen, pfds[j].fd);
                     fflush(stderr);
                 }
                 if (rlen < (ssize_t)bufs[i].len) {

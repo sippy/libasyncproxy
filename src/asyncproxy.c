@@ -361,7 +361,7 @@ asyncproxy_run(void *args)
             pfds[1].events |= POLLOUT;
             connected = 0;
         } else {
-            asyncproxy_handle_connect(ap, &bufs[1]);
+            asyncproxy_handle_connect(ap, &bufs[0]);
         }
     }
 

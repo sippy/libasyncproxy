@@ -38,21 +38,29 @@ class AsyncProxyTest(unittest.TestCase):
 
         dn = socketpair()
         a = AsyncProxy(dn[0].fileno(), 'gmail-smtp-in.l.google.com', 25, AF_INET, None)
+        self.assertFalse(a.isAlive())
+        host_none = a.getsockname()
+        self.assertEqual(host_none, ('0.0.0.0', 0))
         a.start()
+        print(a.isAlive(), a.getsockname())
         while a.getsockname()[1] == 0:
-            print(a.isAlive(), a.getsockname())
+            pass
+        self.assertNotEqual(a.getsockname(), host_none)
         lclsrc = a.getsockname()[0]
         a.join()
+        self.assertFalse(a.isAlive())
         for s in dn: s.close()
 
         for source in (getnull(), getrandom(), socketpair()):
             for sport in 80, 12345:
                 #source = socketpair()
                 a = AsyncProxy(source[0].fileno(), 'gmail-smtp-in.l.google.com', 25, AF_INET, lclsrc)
+                self.assertFalse(a.isAlive())
                 print(a.isAlive(), a.getsockname())
                 a.start()
                 print(a.isAlive())
                 b = AsyncProxy(source[1].fileno(), 'www.google.com', sport, AF_INET, lclsrc)
+                self.assertFalse(b.isAlive())
                 print(b.isAlive())
                 b.start()
                 print(b.isAlive())
@@ -64,6 +72,8 @@ class AsyncProxyTest(unittest.TestCase):
                 print('a=%s b=%s' % (a.describe(), b.describe()))
                 a.join()
                 b.join()
+                self.assertFalse(a.isAlive())
+                self.assertFalse(b.isAlive())
             for s in source: s.close()
         args = getnull()
         a = AsyncProxy2FD(*(x.fileno() for x in args))

@@ -37,6 +37,52 @@ TCPProxy: set of high-level classes to accept and manage inbound connections
 and initiate/tear-down outbound as needed, connecting them using forwarders
 once established.
 
+TCPProxyActive: a high-level active TCP forwarder. Instead of listening for
+inbound TCP clients, it creates a non-blocking outbound connection to
+`destaddr` and forwards that connection to `newhost:newport`.
+
+## Python Callbacks
+
+`AsyncProxy`, `AsyncProxy2FD`, `ForwarderFast`, `TCPProxy`, and
+`TCPProxyActive` can be subclassed to provide callback methods. The native
+module discovers these methods when `start()` is called.
+
+All callbacks run in the proxy worker thread context. Callback code that reads
+or writes data shared with other threads must use appropriate locking or other
+synchronization.
+
+`in2out(res_p)` is called for bytes flowing from the source side to the sink
+side. `out2in(res_p)` is called for bytes flowing from the sink side to the
+source side. `res_p.contents` is a transform result with `buf` and `len`.
+Callbacks may rewrite bytes in place and update `len`.
+
+`on_connect(res_p, max_len)` is called after the proxy's sink-side connection
+is established. Bytes written to `res_p.contents` are queued toward the sink.
+This is useful for protocols that need to send an initial client greeting or
+handshake to the remote endpoint.
+
+`on_source_connect(res_p, max_len)` is called after the source side is
+connected. For `TCPProxyActive`, this means the non-blocking connection to `destaddr` has
+completed. Bytes written to `res_p.contents` are queued toward the source. This
+is useful when the active peer should receive an initial banner or handshake
+from the proxy.
+
+`disc_cb()` is called when the native proxy worker exits.
+
+Callbacks may also be registered explicitly with `set_i2o()`, `set_o2i()`,
+`set_on_connect()`, `set_on_source_connect()`, and `set_on_disconnect()`.
+
+Callbacks that receive `max_len` must not write more than `max_len` bytes to
+the provided buffer.
+
+At the C API layer, connection callbacks use a single
+`asyncproxy_set_on_connect()` registration. Set `cb_info.connected_flags` to
+the bitmask of events the callback should receive:
+`ASYNCPROXY_CONNECTED_SOURCE`, `ASYNCPROXY_CONNECTED_SINK`, or
+`ASYNCPROXY_CONNECTED_BOTH`. The callback receives the event-side bit in
+`args->connected_flags`; `ASYNCPROXY_CONNECTED_BOTH` is additionally set when
+both endpoints are connected.
+
 ## Use Cases
 
 We use this library to allow applications to be redirected to one of several
@@ -97,6 +143,30 @@ for sock in (client_socket, proxy_in, proxy_out, server_socket):
     sock.close()
 ```
 
+### asyncproxy -- `on_connect` Handshake Example
+
+`on_connect(res_p, max_len)` can emit bytes as soon as the proxy's sink
+connection is ready. The bytes are queued toward the sink before normal
+source-to-sink traffic is relayed.
+
+```python
+from ctypes import memmove
+from socket import AF_INET
+from asyncproxy.AsyncProxy import AsyncProxy
+
+class GreetingProxy(AsyncProxy):
+    def on_connect(self, res_p, max_len):
+        greeting = b"HELLO\r\n"
+        assert len(greeting) <= max_len
+        tr = res_p.contents
+        memmove(tr.buf, greeting, len(greeting))
+        tr.len = len(greeting)
+
+# source_sock is an already-open source socket.
+proxy = GreetingProxy(source_sock.fileno(), "example.com", 12345, AF_INET, None)
+proxy.start()
+```
+
 ### asyncproxy -- `TCPProxy` Example
 
 This example shows how to set up a TCP proxy accepting connections on
@@ -124,6 +194,56 @@ for _ in (1, 2):
         print(resp.decode('utf-8', errors='replace'))
 
 # 3. Shutdown the proxy cleanly
+proxy.shutdown()
+```
+
+### asyncproxy -- `TCPProxyActive` Example
+
+`TCPProxyActive` starts from an outbound TCP connection instead of an inbound
+listener. It connects to `destaddr` and forwards that active connection to
+`newhost:newport`.
+
+```python
+from asyncproxy.TCPProxy import TCPProxyActive
+
+# Connect actively to 127.0.0.1:9000, then forward that connection to
+# www.google.com:80.
+proxy = TCPProxyActive(
+    destaddr=("127.0.0.1", 9000),
+    newhost="www.google.com",
+    newport=80,
+    bindhost="127.0.0.1",
+)
+proxy.start()
+
+# Use proxy.port1 / proxy.port2 for diagnostics if needed.
+print("active peer port:", proxy.port1)
+print("outbound local port:", proxy.port2)
+
+proxy.shutdown()
+```
+
+To run code when the active source connection completes, subclass
+`TCPProxyActive` and implement `on_source_connect(res_p, max_len)`:
+
+```python
+from ctypes import memmove
+from asyncproxy.TCPProxy import TCPProxyActive
+
+class BannerProxy(TCPProxyActive):
+    def on_source_connect(self, res_p, max_len):
+        banner = b"ready\n"
+        assert len(banner) <= max_len
+        tr = res_p.contents
+        memmove(tr.buf, banner, len(banner))
+        tr.len = len(banner)
+
+proxy = BannerProxy(
+    destaddr=("127.0.0.1", 9000),
+    newhost="www.google.com",
+    newport=80,
+)
+proxy.start()
 proxy.shutdown()
 ```
 

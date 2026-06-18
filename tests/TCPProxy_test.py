@@ -62,7 +62,7 @@ class EstablishedTCPProxyActive(TCPProxyActive):
     established = None
     payload = None
 
-    def onestablished(self, res_p, max_len):
+    def on_source_connect(self, res_p, max_len):
         assert self.payload is not None
         assert self.established is not None
         assert max_len >= len(self.payload)
@@ -93,7 +93,7 @@ class TCPProxyTest(unittest.TestCase):
         finally:
             source.close()
 
-    def test_TCPProxyActive_onestablished_sends_bytes(self):
+    def test_TCPProxyActive_on_source_connect_sends_bytes(self):
         source_server = TCPServer(recv_len=5)
         sink_server = TCPServer(recv_len=None)
         established = Event()

@@ -46,27 +46,33 @@ struct transform_res {
     size_t len;
 };
 
+enum asyncproxy_connected_flag {
+    ASYNCPROXY_CONNECTED_SOURCE = 1u << 0,
+    ASYNCPROXY_CONNECTED_SINK = 1u << 1,
+    ASYNCPROXY_CONNECTED_BOTH = 1u << 2,
+};
+
 struct asyncproxy_cb_args {
     void *arg;
     struct transform_res res;
     size_t max_len;
+    unsigned int connected_flags;
 };
 
 typedef void (*asyncproxy_data_cb)(struct asyncproxy_cb_args *);
-typedef void (*asyncproxy_onconnect_cb)(struct asyncproxy_cb_args *);
-typedef void (*asyncproxy_onestablished_cb)(struct asyncproxy_cb_args *);
-typedef void (*asyncproxy_ondisconnect_cb)(void *);
+typedef void (*asyncproxy_on_connect_cb)(struct asyncproxy_cb_args *);
+typedef void (*asyncproxy_on_disconnect_cb)(void *);
 
 union asyncproxy_cb {
     asyncproxy_data_cb data;
-    asyncproxy_onconnect_cb onconnect;
-    asyncproxy_onestablished_cb onestablished;
-    asyncproxy_ondisconnect_cb ondisconnect;
+    asyncproxy_on_connect_cb on_connect;
+    asyncproxy_on_disconnect_cb on_disconnect;
 };
 
 struct asyncproxy_cb_info {
     union asyncproxy_cb cb;
     void *cb_arg;
+    unsigned int connected_flags;
 };
 
 void * asyncproxy_ctor(const struct asyncproxy_ctor_args * const);
@@ -74,9 +80,8 @@ int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
 void asyncproxy_set_i2o(void *, const struct asyncproxy_cb_info * const);
 void asyncproxy_set_o2i(void *, const struct asyncproxy_cb_info * const);
-void asyncproxy_set_onconnect(void *, const struct asyncproxy_cb_info * const);
-void asyncproxy_set_onestablished(void *, const struct asyncproxy_cb_info * const);
-void asyncproxy_set_ondisconnect(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_on_connect(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_on_disconnect(void *, const struct asyncproxy_cb_info * const);
 void asyncproxy_join(void *, int);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);

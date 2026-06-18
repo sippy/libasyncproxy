@@ -15,7 +15,6 @@ LIBASYNCPROXY_52f3df78d5 {
 
 LIBASYNCPROXY_ab84ee05c4 {
     global:
-      asyncproxy_set_onconnect;
-      asyncproxy_set_onestablished;
-      asyncproxy_set_ondisconnect;
+      asyncproxy_set_on_connect;
+      asyncproxy_set_on_disconnect;
 } LIBASYNCPROXY_52f3df78d5;

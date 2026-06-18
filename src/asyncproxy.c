@@ -91,7 +91,6 @@ struct asyncproxy {
     int last_seen_alive;
     struct asyncproxy_cb_info transform[2];
     struct asyncproxy_cb_info on_connect;
-    struct asyncproxy_cb_info on_established;
     struct asyncproxy_cb_info on_disconnect;
     int needsjoin;
     char addrbuf[FILENAME_MAX];
@@ -184,18 +183,36 @@ struct io_buf {
     size_t len;
 };
 
+struct asyncproxy_connected {
+    int source;
+    int sink;
+};
+
 #define BUF_FREE(ibp) (sizeof((ibp)->data) - (ibp)->len)
 #define BUF_P(ibp) (&(ibp)->data[(ibp)->len])
 
 #define NEG(idx) ((idx) ^ 1)
 
+static unsigned int
+asyncproxy_connected_flags(unsigned int connected_flags,
+    const struct asyncproxy_connected *connected)
+{
+    if (connected->source != 0 && connected->sink != 0)
+        connected_flags |= ASYNCPROXY_CONNECTED_BOTH;
+    return (connected_flags);
+}
+
 static void
-asyncproxy_handle_connect(struct asyncproxy *ap, struct io_buf *buf)
+asyncproxy_handle_connect(struct asyncproxy *ap, struct io_buf *buf,
+    unsigned int connected_flags)
 {
     pthread_mutex_lock(&ap->mutex);
     struct asyncproxy_cb_info on_connect = ap->on_connect;
     pthread_mutex_unlock(&ap->mutex);
-    if (on_connect.cb.onconnect == NULL)
+    if (on_connect.cb.on_connect == NULL)
+        return;
+    connected_flags &= on_connect.connected_flags;
+    if (connected_flags == 0)
         return;
 #if defined(PYTHON_AWARE)
     PyGILState_STATE gstate;
@@ -205,8 +222,9 @@ asyncproxy_handle_connect(struct asyncproxy *ap, struct io_buf *buf)
         .arg = on_connect.cb_arg,
         .res = {.buf = BUF_P(buf)},
         .max_len = BUF_FREE(buf),
+        .connected_flags = connected_flags,
     };
-    on_connect.cb.onconnect(&cb_args);
+    on_connect.cb.on_connect(&cb_args);
     struct transform_res tr = cb_args.res;
 #if defined(PYTHON_AWARE)
     PyGILState_Release(gstate);
@@ -251,51 +269,18 @@ asyncproxy_source_connected(struct asyncproxy *ap)
 }
 
 static void
-asyncproxy_handle_established(struct asyncproxy *ap, struct io_buf *buf)
-{
-    pthread_mutex_lock(&ap->mutex);
-    struct asyncproxy_cb_info on_established = ap->on_established;
-    pthread_mutex_unlock(&ap->mutex);
-    if (on_established.cb.onestablished == NULL)
-        return;
-#if defined(PYTHON_AWARE)
-    PyGILState_STATE gstate;
-    gstate = PyGILState_Ensure();
-#endif
-    struct asyncproxy_cb_args cb_args = {
-        .arg = on_established.cb_arg,
-        .res = {.buf = BUF_P(buf)},
-        .max_len = BUF_FREE(buf),
-    };
-    on_established.cb.onestablished(&cb_args);
-    struct transform_res tr = cb_args.res;
-#if defined(PYTHON_AWARE)
-    PyGILState_Release(gstate);
-#endif
-    if (tr.buf != BUF_P(buf)) {
-        if (tr.len > 0) {
-            assert(BUF_FREE(buf) >= tr.len);
-            memmove(BUF_P(buf), tr.buf, tr.len);
-        }
-    } else if (tr.len > 0) {
-        assert(BUF_FREE(buf) >= tr.len);
-    }
-    buf->len += tr.len;
-}
-
-static void
 asyncproxy_handle_disconnect(struct asyncproxy *ap)
 {
     pthread_mutex_lock(&ap->mutex);
     struct asyncproxy_cb_info on_disconnect = ap->on_disconnect;
     pthread_mutex_unlock(&ap->mutex);
-    if (on_disconnect.cb.ondisconnect == NULL)
+    if (on_disconnect.cb.on_disconnect == NULL)
         return;
 #if defined(PYTHON_AWARE)
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 #endif
-    on_disconnect.cb.ondisconnect(on_disconnect.cb_arg);
+    on_disconnect.cb.on_disconnect(on_disconnect.cb_arg);
 #if defined(PYTHON_AWARE)
     PyGILState_Release(gstate);
 #endif
@@ -304,8 +289,9 @@ asyncproxy_handle_disconnect(struct asyncproxy *ap)
 static void *
 asyncproxy_run(void *args)
 {
-    int n, i, state, j, eidx, rval, source_connected, so_error;
+    int n, i, state, j, eidx, rval, so_error;
     struct asyncproxy *ap;
+    struct asyncproxy_connected connected = {0};
     struct pollfd pfds[2];
     struct asp_sock *asps[2];
     struct io_buf bufs[2];
@@ -331,21 +317,23 @@ asyncproxy_run(void *args)
     pfds[1].events = POLLIN;
     asps[1] = &ap->sink;
 
-    source_connected = asyncproxy_source_connected(ap);
-    if (source_connected < 0) {
+    connected.sink = (ap->dest_type == AP_DEST_FD);
+    connected.source = asyncproxy_source_connected(ap);
+    if (connected.source < 0) {
         fprintf(stderr, "asyncproxy_run: getpeername(source) failed: %s\n",
           strerror(errno));
         fflush(stderr);
         goto out;
     }
-    if (source_connected != 0) {
+    if (connected.source != 0) {
         pfds[0].events = POLLIN;
-        asyncproxy_handle_established(ap, &bufs[1]);
+        asyncproxy_handle_connect(ap, &bufs[1],
+          asyncproxy_connected_flags(ASYNCPROXY_CONNECTED_SOURCE,
+            &connected));
     } else {
         pfds[0].events = POLLOUT;
     }
 
-    int connected = 1;
     if (ap->dest_type == AP_DEST_HOST) {
         rval = connect(ap->sink.fd, &ap->destaddr.sa, ap->destaddr.alen);
         if (rval != 0) {
@@ -359,9 +347,12 @@ asyncproxy_run(void *args)
                 goto out;
             }
             pfds[1].events |= POLLOUT;
-            connected = 0;
         } else {
-            asyncproxy_handle_connect(ap, &bufs[0]);
+            assert(connected.sink == 0);
+            connected.sink = 1;
+            asyncproxy_handle_connect(ap, &bufs[0],
+              asyncproxy_connected_flags(ASYNCPROXY_CONNECTED_SINK,
+                &connected));
         }
     }
 
@@ -393,7 +384,7 @@ asyncproxy_run(void *args)
             continue;
         }
 
-        if (source_connected == 0 && pfds[0].revents & POLLOUT) {
+        if (connected.source == 0 && pfds[0].revents & POLLOUT) {
             if (asyncproxy_get_so_error(ap->source.fd, &so_error) != 0) {
                 fprintf(stderr, "asyncproxy_run: getsockopt(source, SO_ERROR) "
                   "failed: %s\n", strerror(errno));
@@ -408,11 +399,14 @@ asyncproxy_run(void *args)
                 eidx = 0;
                 goto out;
             }
-            source_connected = 1;
+            assert(connected.source == 0);
+            connected.source = 1;
             pfds[0].events &= ~POLLOUT;
             pfds[0].events |= POLLIN;
             pfds[0].revents &= ~POLLOUT;
-            asyncproxy_handle_established(ap, &bufs[1]);
+            asyncproxy_handle_connect(ap, &bufs[1],
+              asyncproxy_connected_flags(ASYNCPROXY_CONNECTED_SOURCE,
+                &connected));
         }
 
         for (i = 0; i < 2; i++) {
@@ -493,9 +487,13 @@ asyncproxy_run(void *args)
         }
         for (i = 0; i < 2; i++) {
             j = NEG(i);
-            if (j == 1 && connected == 0 && pfds[j].events & POLLOUT && pfds[j].revents & POLLOUT) {
-                connected = 1;
-                asyncproxy_handle_connect(ap, &bufs[i]);
+            if (j == 1 && connected.sink == 0 && pfds[j].events & POLLOUT && pfds[j].revents & POLLOUT) {
+                assert(connected.sink == 0);
+                connected.sink = 1;
+                assert(i == 0);
+                asyncproxy_handle_connect(ap, &bufs[0],
+                  asyncproxy_connected_flags(ASYNCPROXY_CONNECTED_SINK,
+                    &connected));
             }
             if (bufs[i].len > 0) {
                 if (pfds[j].events & POLLOUT && (pfds[j].revents & POLLOUT) == 0)
@@ -775,7 +773,7 @@ asyncproxy_set_o2i(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 }
 
 void
-asyncproxy_set_onconnect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
+asyncproxy_set_on_connect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 
@@ -787,19 +785,7 @@ asyncproxy_set_onconnect(void *_ap, const struct asyncproxy_cb_info * const cb_i
 }
 
 void
-asyncproxy_set_onestablished(void *_ap, const struct asyncproxy_cb_info * const cb_info)
-{
-    struct asyncproxy *ap;
-
-    ap = (struct asyncproxy *)_ap;
-
-    pthread_mutex_lock(&ap->mutex);
-    ap->on_established = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
-    pthread_mutex_unlock(&ap->mutex);
-}
-
-void
-asyncproxy_set_ondisconnect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
+asyncproxy_set_on_disconnect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 

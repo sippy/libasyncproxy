@@ -12,7 +12,7 @@ typedef struct {
     PyObject *in2out_cb;
     PyObject *out2in_cb;
     PyObject *on_connect_cb;
-    PyObject *on_established_cb;
+    PyObject *on_source_connect_cb;
     PyObject *on_disconnect_cb;
 } PyAsyncProxyCallbacks;
 
@@ -212,14 +212,18 @@ PyAsyncProxy_data_callback(PyObject *callable, struct transform_res *res, size_t
 
     if (callable == NULL)
         return;
+    assert(PyCallable_Check(callable));
+    Py_INCREF(callable);
 
     arg = PyTransformRes_FromC(res, max_len);
     if (arg == NULL) {
+        Py_DECREF(callable);
         PyErr_Print();
         res->len = 0;
         return;
     }
     rv = PyObject_CallFunctionObjArgs(callable, arg, NULL);
+    Py_DECREF(callable);
     ((PyTransformRes *)arg)->res = NULL;
     Py_DECREF(arg);
     if (rv == NULL) {
@@ -231,21 +235,22 @@ PyAsyncProxy_data_callback(PyObject *callable, struct transform_res *res, size_t
 }
 
 static void
-PyAsyncProxy_onconnect_callback(struct asyncproxy_cb_args *args)
+PyAsyncProxy_call_connect_callback(PyObject *callable,
+    struct asyncproxy_cb_args *args)
 {
-    PyAsyncProxyCallbacks *cbs;
     PyObject *tres;
     PyObject *max_len_obj;
     PyObject *rv;
 
     assert(args != NULL);
-    cbs = (PyAsyncProxyCallbacks *)args->arg;
-    assert(cbs != NULL);
-    if (cbs->on_connect_cb == NULL)
+    if (callable == NULL)
         return;
+    assert(PyCallable_Check(callable));
+    Py_INCREF(callable);
 
     tres = PyTransformRes_FromC(&args->res, args->max_len);
     if (tres == NULL) {
+        Py_DECREF(callable);
         PyErr_Print();
         args->res.len = 0;
         return;
@@ -254,11 +259,13 @@ PyAsyncProxy_onconnect_callback(struct asyncproxy_cb_args *args)
     if (max_len_obj == NULL) {
         ((PyTransformRes *)tres)->res = NULL;
         Py_DECREF(tres);
+        Py_DECREF(callable);
         PyErr_Print();
         args->res.len = 0;
         return;
     }
-    rv = PyObject_CallFunctionObjArgs(cbs->on_connect_cb, tres, max_len_obj, NULL);
+    rv = PyObject_CallFunctionObjArgs(callable, tres, max_len_obj, NULL);
+    Py_DECREF(callable);
     Py_DECREF(max_len_obj);
     ((PyTransformRes *)tres)->res = NULL;
     Py_DECREF(tres);
@@ -271,43 +278,19 @@ PyAsyncProxy_onconnect_callback(struct asyncproxy_cb_args *args)
 }
 
 static void
-PyAsyncProxy_onestablished_callback(struct asyncproxy_cb_args *args)
+PyAsyncProxy_on_connect_callback(struct asyncproxy_cb_args *args)
 {
     PyAsyncProxyCallbacks *cbs;
-    PyObject *tres;
-    PyObject *max_len_obj;
-    PyObject *rv;
+    PyObject *callable = NULL;
 
     assert(args != NULL);
     cbs = (PyAsyncProxyCallbacks *)args->arg;
     assert(cbs != NULL);
-    if (cbs->on_established_cb == NULL)
-        return;
-
-    tres = PyTransformRes_FromC(&args->res, args->max_len);
-    if (tres == NULL) {
-        PyErr_Print();
-        args->res.len = 0;
-        return;
-    }
-    max_len_obj = PyLong_FromSize_t(args->max_len);
-    if (max_len_obj == NULL) {
-        ((PyTransformRes *)tres)->res = NULL;
-        Py_DECREF(tres);
-        PyErr_Print();
-        args->res.len = 0;
-        return;
-    }
-    rv = PyObject_CallFunctionObjArgs(cbs->on_established_cb, tres, max_len_obj, NULL);
-    Py_DECREF(max_len_obj);
-    ((PyTransformRes *)tres)->res = NULL;
-    Py_DECREF(tres);
-    if (rv == NULL) {
-        PyErr_Print();
-        args->res.len = 0;
-        return;
-    }
-    Py_DECREF(rv);
+    if (args->connected_flags & ASYNCPROXY_CONNECTED_SINK)
+        callable = cbs->on_connect_cb;
+    else if (args->connected_flags & ASYNCPROXY_CONNECTED_SOURCE)
+        callable = cbs->on_source_connect_cb;
+    PyAsyncProxy_call_connect_callback(callable, args);
 }
 
 static void
@@ -333,15 +316,20 @@ PyAsyncProxy_out2in_callback(struct asyncproxy_cb_args *args)
 }
 
 static void
-PyAsyncProxy_ondisconnect_callback(void *arg)
+PyAsyncProxy_on_disconnect_callback(void *arg)
 {
     PyAsyncProxyCallbacks *cbs = (PyAsyncProxyCallbacks *)arg;
+    PyObject *callable;
     PyObject *rv;
 
     assert(cbs != NULL);
-    if (cbs->on_disconnect_cb == NULL)
+    callable = cbs->on_disconnect_cb;
+    if (callable == NULL)
         return;
-    rv = PyObject_CallFunctionObjArgs(cbs->on_disconnect_cb, NULL);
+    assert(PyCallable_Check(callable));
+    Py_INCREF(callable);
+    rv = PyObject_CallFunctionObjArgs(callable, NULL);
+    Py_DECREF(callable);
     if (rv == NULL) {
         PyErr_Print();
         return;
@@ -357,7 +345,7 @@ PyAsyncProxy_clear_callbacks(PyAsyncProxyCallbacks *cbs)
     Py_CLEAR(cbs->in2out_cb);
     Py_CLEAR(cbs->out2in_cb);
     Py_CLEAR(cbs->on_connect_cb);
-    Py_CLEAR(cbs->on_established_cb);
+    Py_CLEAR(cbs->on_source_connect_cb);
     Py_CLEAR(cbs->on_disconnect_cb);
 }
 
@@ -456,9 +444,9 @@ PyAsyncProxy_set_callback(PyObject **slot, PyObject *callable)
 typedef enum {
     PYAP_CB_IN2OUT,
     PYAP_CB_OUT2IN,
-    PYAP_CB_ONCONNECT,
-    PYAP_CB_ONESTABLISHED,
-    PYAP_CB_ONDISCONNECT,
+    PYAP_CB_ON_CONNECT,
+    PYAP_CB_ON_SOURCE_CONNECT,
+    PYAP_CB_ON_DISCONNECT,
 } PyAsyncProxyCallbackKind;
 
 static PyObject **
@@ -469,14 +457,30 @@ PyAsyncProxy_callback_slot(PyAsyncProxy *self, PyAsyncProxyCallbackKind kind)
         return &self->cbs->in2out_cb;
     case PYAP_CB_OUT2IN:
         return &self->cbs->out2in_cb;
-    case PYAP_CB_ONCONNECT:
+    case PYAP_CB_ON_CONNECT:
         return &self->cbs->on_connect_cb;
-    case PYAP_CB_ONESTABLISHED:
-        return &self->cbs->on_established_cb;
-    case PYAP_CB_ONDISCONNECT:
+    case PYAP_CB_ON_SOURCE_CONNECT:
+        return &self->cbs->on_source_connect_cb;
+    case PYAP_CB_ON_DISCONNECT:
         return &self->cbs->on_disconnect_cb;
     }
     return NULL;
+}
+
+static void
+PyAsyncProxy_apply_connect_callbacks(PyAsyncProxy *self)
+{
+    struct asyncproxy_cb_info cb_info = {0};
+
+    if (self->cbs->on_connect_cb != NULL)
+        cb_info.connected_flags |= ASYNCPROXY_CONNECTED_SINK;
+    if (self->cbs->on_source_connect_cb != NULL)
+        cb_info.connected_flags |= ASYNCPROXY_CONNECTED_SOURCE;
+    if (cb_info.connected_flags != 0) {
+        cb_info.cb_arg = self->cbs;
+        cb_info.cb.on_connect = PyAsyncProxy_on_connect_callback;
+    }
+    asyncproxy_set_on_connect(self->ap, &cb_info);
 }
 
 static int
@@ -491,6 +495,15 @@ PyAsyncProxy_apply_callback(PyAsyncProxy *self, PyAsyncProxyCallbackKind kind,
     if (PyAsyncProxy_set_callback(slot, callable) != 0)
         return -1;
 
+    switch (kind) {
+    case PYAP_CB_ON_CONNECT:
+    case PYAP_CB_ON_SOURCE_CONNECT:
+        PyAsyncProxy_apply_connect_callbacks(self);
+        return 0;
+    default:
+        break;
+    }
+
     if (*slot != NULL) {
         cb_info.cb_arg = self->cbs;
         switch (kind) {
@@ -500,14 +513,11 @@ PyAsyncProxy_apply_callback(PyAsyncProxy *self, PyAsyncProxyCallbackKind kind,
         case PYAP_CB_OUT2IN:
             cb_info.cb.data = PyAsyncProxy_out2in_callback;
             break;
-        case PYAP_CB_ONCONNECT:
-            cb_info.cb.onconnect = PyAsyncProxy_onconnect_callback;
+        case PYAP_CB_ON_DISCONNECT:
+            cb_info.cb.on_disconnect = PyAsyncProxy_on_disconnect_callback;
             break;
-        case PYAP_CB_ONESTABLISHED:
-            cb_info.cb.onestablished = PyAsyncProxy_onestablished_callback;
-            break;
-        case PYAP_CB_ONDISCONNECT:
-            cb_info.cb.ondisconnect = PyAsyncProxy_ondisconnect_callback;
+        default:
+            assert(0);
             break;
         }
     }
@@ -519,14 +529,11 @@ PyAsyncProxy_apply_callback(PyAsyncProxy *self, PyAsyncProxyCallbackKind kind,
     case PYAP_CB_OUT2IN:
         asyncproxy_set_o2i(self->ap, &cb_info);
         break;
-    case PYAP_CB_ONCONNECT:
-        asyncproxy_set_onconnect(self->ap, &cb_info);
+    case PYAP_CB_ON_DISCONNECT:
+        asyncproxy_set_on_disconnect(self->ap, &cb_info);
         break;
-    case PYAP_CB_ONESTABLISHED:
-        asyncproxy_set_onestablished(self->ap, &cb_info);
-        break;
-    case PYAP_CB_ONDISCONNECT:
-        asyncproxy_set_ondisconnect(self->ap, &cb_info);
+    default:
+        assert(0);
         break;
     }
     return 0;
@@ -591,43 +598,43 @@ PyAsyncProxy_set_o2i(PyAsyncProxy *self, PyObject *args)
 }
 
 static PyObject *
-PyAsyncProxy_set_onconnect(PyAsyncProxy *self, PyObject *args)
+PyAsyncProxy_set_on_connect(PyAsyncProxy *self, PyObject *args)
 {
     PyObject *callable;
 
-    if (!PyArg_ParseTuple(args, "O:set_onconnect", &callable))
+    if (!PyArg_ParseTuple(args, "O:set_on_connect", &callable))
         return NULL;
     if (PyAsyncProxy_check_handle(self) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ONCONNECT, callable) != 0)
+    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ON_CONNECT, callable) != 0)
         return NULL;
     Py_RETURN_NONE;
 }
 
 static PyObject *
-PyAsyncProxy_set_onestablished(PyAsyncProxy *self, PyObject *args)
+PyAsyncProxy_set_on_source_connect(PyAsyncProxy *self, PyObject *args)
 {
     PyObject *callable;
 
-    if (!PyArg_ParseTuple(args, "O:set_onestablished", &callable))
+    if (!PyArg_ParseTuple(args, "O:set_on_source_connect", &callable))
         return NULL;
     if (PyAsyncProxy_check_handle(self) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ONESTABLISHED, callable) != 0)
+    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ON_SOURCE_CONNECT, callable) != 0)
         return NULL;
     Py_RETURN_NONE;
 }
 
 static PyObject *
-PyAsyncProxy_set_ondisconnect(PyAsyncProxy *self, PyObject *args)
+PyAsyncProxy_set_on_disconnect(PyAsyncProxy *self, PyObject *args)
 {
     PyObject *callable;
 
-    if (!PyArg_ParseTuple(args, "O:set_ondisconnect", &callable))
+    if (!PyArg_ParseTuple(args, "O:set_on_disconnect", &callable))
         return NULL;
     if (PyAsyncProxy_check_handle(self) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ONDISCONNECT, callable) != 0)
+    if (PyAsyncProxy_apply_callback(self, PYAP_CB_ON_DISCONNECT, callable) != 0)
         return NULL;
     Py_RETURN_NONE;
 }
@@ -645,11 +652,11 @@ PyAsyncProxy_start(PyAsyncProxy *self, PyObject *args)
         return NULL;
     if (PyAsyncProxy_apply_optional_attr_callback(self, "out2in", PYAP_CB_OUT2IN) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_optional_attr_callback(self, "on_connect", PYAP_CB_ONCONNECT) != 0)
+    if (PyAsyncProxy_apply_optional_attr_callback(self, "on_connect", PYAP_CB_ON_CONNECT) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_optional_attr_callback(self, "onestablished", PYAP_CB_ONESTABLISHED) != 0)
+    if (PyAsyncProxy_apply_optional_attr_callback(self, "on_source_connect", PYAP_CB_ON_SOURCE_CONNECT) != 0)
         return NULL;
-    if (PyAsyncProxy_apply_optional_attr_callback(self, "disc_cb", PYAP_CB_ONDISCONNECT) != 0)
+    if (PyAsyncProxy_apply_optional_attr_callback(self, "disc_cb", PYAP_CB_ON_DISCONNECT) != 0)
         return NULL;
 
     Py_BEGIN_ALLOW_THREADS
@@ -730,9 +737,9 @@ PyAsyncProxy_getsockname(PyAsyncProxy *self, PyObject *args)
 static PyMethodDef PyAsyncProxy_methods[] = {
     {"set_i2o", (PyCFunction)PyAsyncProxy_set_i2o, METH_VARARGS, NULL},
     {"set_o2i", (PyCFunction)PyAsyncProxy_set_o2i, METH_VARARGS, NULL},
-    {"set_onconnect", (PyCFunction)PyAsyncProxy_set_onconnect, METH_VARARGS, NULL},
-    {"set_onestablished", (PyCFunction)PyAsyncProxy_set_onestablished, METH_VARARGS, NULL},
-    {"set_ondisconnect", (PyCFunction)PyAsyncProxy_set_ondisconnect, METH_VARARGS, NULL},
+    {"set_on_connect", (PyCFunction)PyAsyncProxy_set_on_connect, METH_VARARGS, NULL},
+    {"set_on_source_connect", (PyCFunction)PyAsyncProxy_set_on_source_connect, METH_VARARGS, NULL},
+    {"set_on_disconnect", (PyCFunction)PyAsyncProxy_set_on_disconnect, METH_VARARGS, NULL},
     {"start", (PyCFunction)PyAsyncProxy_start, METH_VARARGS, NULL},
     {"isAlive", (PyCFunction)PyAsyncProxy_isalive, METH_VARARGS, NULL},
     {"join", (PyCFunction)PyAsyncProxy_join, METH_VARARGS | METH_KEYWORDS, NULL},

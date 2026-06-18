@@ -89,9 +89,10 @@ struct asyncproxy {
         socklen_t alen;
     } destaddr;
     int last_seen_alive;
-    void (*transform[2])(struct transform_res *);
-    void (*on_connect)(struct transform_res *, size_t);
-    void (*on_disconnect)(void);
+    struct asyncproxy_cb_info transform[2];
+    struct asyncproxy_cb_info on_connect;
+    struct asyncproxy_cb_info on_established;
+    struct asyncproxy_cb_info on_disconnect;
     int needsjoin;
     char addrbuf[FILENAME_MAX];
 };
@@ -192,16 +193,82 @@ static void
 asyncproxy_handle_connect(struct asyncproxy *ap, struct io_buf *buf)
 {
     pthread_mutex_lock(&ap->mutex);
-    __typeof(ap->on_connect) on_connect = ap->on_connect;
+    struct asyncproxy_cb_info on_connect = ap->on_connect;
     pthread_mutex_unlock(&ap->mutex);
-    if (on_connect == NULL)
+    if (on_connect.cb.onconnect == NULL)
         return;
 #if defined(PYTHON_AWARE)
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 #endif
-    struct transform_res tr = {.buf = BUF_P(buf)};
-    on_connect(&tr, BUF_FREE(buf));
+    struct asyncproxy_cb_args cb_args = {
+        .arg = on_connect.cb_arg,
+        .res = {.buf = BUF_P(buf)},
+        .max_len = BUF_FREE(buf),
+    };
+    on_connect.cb.onconnect(&cb_args);
+    struct transform_res tr = cb_args.res;
+#if defined(PYTHON_AWARE)
+    PyGILState_Release(gstate);
+#endif
+    if (tr.buf != BUF_P(buf)) {
+        if (tr.len > 0) {
+            assert(BUF_FREE(buf) >= tr.len);
+            memmove(BUF_P(buf), tr.buf, tr.len);
+        }
+    } else if (tr.len > 0) {
+        assert(BUF_FREE(buf) >= tr.len);
+    }
+    buf->len += tr.len;
+}
+
+static int
+asyncproxy_get_so_error(int fd, int *so_error)
+{
+    socklen_t slen;
+
+    *so_error = 0;
+    slen = sizeof(*so_error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, so_error, &slen) != 0)
+        return (-1);
+    return (0);
+}
+
+static int
+asyncproxy_source_connected(struct asyncproxy *ap)
+{
+    struct sockaddr_storage ss;
+    socklen_t slen;
+
+    slen = sizeof(ss);
+    if (getpeername(ap->source.fd, tosa(&ss), &slen) == 0)
+        return (1);
+    if (errno == ENOTCONN)
+        return (0);
+    if (errno == ENOTSOCK)
+        return (1);
+    return (-1);
+}
+
+static void
+asyncproxy_handle_established(struct asyncproxy *ap, struct io_buf *buf)
+{
+    pthread_mutex_lock(&ap->mutex);
+    struct asyncproxy_cb_info on_established = ap->on_established;
+    pthread_mutex_unlock(&ap->mutex);
+    if (on_established.cb.onestablished == NULL)
+        return;
+#if defined(PYTHON_AWARE)
+    PyGILState_STATE gstate;
+    gstate = PyGILState_Ensure();
+#endif
+    struct asyncproxy_cb_args cb_args = {
+        .arg = on_established.cb_arg,
+        .res = {.buf = BUF_P(buf)},
+        .max_len = BUF_FREE(buf),
+    };
+    on_established.cb.onestablished(&cb_args);
+    struct transform_res tr = cb_args.res;
 #if defined(PYTHON_AWARE)
     PyGILState_Release(gstate);
 #endif
@@ -220,15 +287,15 @@ static void
 asyncproxy_handle_disconnect(struct asyncproxy *ap)
 {
     pthread_mutex_lock(&ap->mutex);
-    __typeof(ap->on_disconnect) on_disconnect = ap->on_disconnect;
+    struct asyncproxy_cb_info on_disconnect = ap->on_disconnect;
     pthread_mutex_unlock(&ap->mutex);
-    if (on_disconnect == NULL)
+    if (on_disconnect.cb.ondisconnect == NULL)
         return;
 #if defined(PYTHON_AWARE)
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 #endif
-    on_disconnect();
+    on_disconnect.cb.ondisconnect(on_disconnect.cb_arg);
 #if defined(PYTHON_AWARE)
     PyGILState_Release(gstate);
 #endif
@@ -237,7 +304,7 @@ asyncproxy_handle_disconnect(struct asyncproxy *ap)
 static void *
 asyncproxy_run(void *args)
 {
-    int n, i, state, j, eidx, rval;
+    int n, i, state, j, eidx, rval, source_connected, so_error;
     struct asyncproxy *ap;
     struct pollfd pfds[2];
     struct asp_sock *asps[2];
@@ -259,11 +326,24 @@ asyncproxy_run(void *args)
     memset(pfds, '\0', sizeof(pfds));
     memset(bufs, '\0', sizeof(bufs));
     pfds[0].fd = ap->source.fd;
-    pfds[0].events = POLLIN;
     asps[0] = &ap->source;
     pfds[1].fd = ap->sink.fd;
     pfds[1].events = POLLIN;
     asps[1] = &ap->sink;
+
+    source_connected = asyncproxy_source_connected(ap);
+    if (source_connected < 0) {
+        fprintf(stderr, "asyncproxy_run: getpeername(source) failed: %s\n",
+          strerror(errno));
+        fflush(stderr);
+        goto out;
+    }
+    if (source_connected != 0) {
+        pfds[0].events = POLLIN;
+        asyncproxy_handle_established(ap, &bufs[1]);
+    } else {
+        pfds[0].events = POLLOUT;
+    }
 
     int connected = 1;
     if (ap->dest_type == AP_DEST_HOST) {
@@ -296,6 +376,10 @@ asyncproxy_run(void *args)
             }
             break;
         }
+        for (i = 0; i < 2; i++) {
+            if (bufs[i].len > 0)
+                pfds[NEG(i)].events |= POLLOUT;
+        }
         n = poll(pfds, 2, INFTIM);
         if (n < 0 && ap->debug > 0) {
                 fprintf(stderr, "asyncproxy_run: poll() failed: %s\n", strerror(errno));
@@ -307,6 +391,28 @@ asyncproxy_run(void *args)
         }
         if (n <= 0) {
             continue;
+        }
+
+        if (source_connected == 0 && pfds[0].revents & POLLOUT) {
+            if (asyncproxy_get_so_error(ap->source.fd, &so_error) != 0) {
+                fprintf(stderr, "asyncproxy_run: getsockopt(source, SO_ERROR) "
+                  "failed: %s\n", strerror(errno));
+                fflush(stderr);
+                eidx = 0;
+                goto out;
+            }
+            if (so_error != 0) {
+                fprintf(stderr, "asyncproxy_run: source connect() failed: %s\n",
+                  strerror(so_error));
+                fflush(stderr);
+                eidx = 0;
+                goto out;
+            }
+            source_connected = 1;
+            pfds[0].events &= ~POLLOUT;
+            pfds[0].events |= POLLIN;
+            pfds[0].revents &= ~POLLOUT;
+            asyncproxy_handle_established(ap, &bufs[1]);
         }
 
         for (i = 0; i < 2; i++) {
@@ -346,15 +452,20 @@ asyncproxy_run(void *args)
                     goto out;
                 }
                 pthread_mutex_lock(&ap->mutex);
-                __typeof(ap->transform[i]) transform = ap->transform[i];
+                struct asyncproxy_cb_info transform = ap->transform[i];
                 pthread_mutex_unlock(&ap->mutex);
-                if (transform != NULL) {
+                if (transform.cb.data != NULL) {
 #if defined(PYTHON_AWARE)
                     PyGILState_STATE gstate;
                     gstate = PyGILState_Ensure();
 #endif
-                    struct transform_res tr = {BUF_P(&bufs[i]), r.len};
-                    transform(&tr);
+                    struct asyncproxy_cb_args cb_args = {
+                        .arg = transform.cb_arg,
+                        .res = {BUF_P(&bufs[i]), r.len},
+                        .max_len = BUF_FREE(&bufs[i]),
+                    };
+                    transform.cb.data(&cb_args);
+                    struct transform_res tr = cb_args.res;
 #if defined(PYTHON_AWARE)
                     PyGILState_Release(gstate);
 #endif
@@ -439,7 +550,7 @@ out:
 }
 
 void *
-asyncproxy_ctor(const struct asyncproxy_ctor_args *acap)
+asyncproxy_ctor(const struct asyncproxy_ctor_args * const acap)
 {
     struct asyncproxy *ap;
     char pnum[6];
@@ -640,50 +751,62 @@ asyncproxy_isalive(void *_ap)
 }
 
 void
-asyncproxy_set_i2o(void *_ap, void (*i2ofp)(struct transform_res *))
+asyncproxy_set_i2o(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 
     ap = (struct asyncproxy *)_ap;
 
     pthread_mutex_lock(&ap->mutex);
-    ap->transform[0] = i2ofp;
+    ap->transform[0] = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
     pthread_mutex_unlock(&ap->mutex);
 }
 
 void
-asyncproxy_set_o2i(void *_ap, void (*o2ifp)(struct transform_res *))
+asyncproxy_set_o2i(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 
     ap = (struct asyncproxy *)_ap;
 
     pthread_mutex_lock(&ap->mutex);
-    ap->transform[1] = o2ifp;
+    ap->transform[1] = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
     pthread_mutex_unlock(&ap->mutex);
 }
 
 void
-asyncproxy_set_onconnect(void *_ap, void (*on_connect)(struct transform_res *, size_t))
+asyncproxy_set_onconnect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 
     ap = (struct asyncproxy *)_ap;
 
     pthread_mutex_lock(&ap->mutex);
-    ap->on_connect = on_connect;
+    ap->on_connect = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
     pthread_mutex_unlock(&ap->mutex);
 }
 
 void
-asyncproxy_set_ondisconnect(void *_ap, void (*on_disconnect)(void))
+asyncproxy_set_onestablished(void *_ap, const struct asyncproxy_cb_info * const cb_info)
 {
     struct asyncproxy *ap;
 
     ap = (struct asyncproxy *)_ap;
 
     pthread_mutex_lock(&ap->mutex);
-    ap->on_disconnect = on_disconnect;
+    ap->on_established = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
+    pthread_mutex_unlock(&ap->mutex);
+}
+
+void
+asyncproxy_set_ondisconnect(void *_ap, const struct asyncproxy_cb_info * const cb_info)
+{
+    struct asyncproxy *ap;
+
+    ap = (struct asyncproxy *)_ap;
+
+    pthread_mutex_lock(&ap->mutex);
+    ap->on_disconnect = cb_info != NULL ? *cb_info : (struct asyncproxy_cb_info){0};
     pthread_mutex_unlock(&ap->mutex);
 }
 

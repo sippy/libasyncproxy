@@ -29,6 +29,7 @@ from time import strftime
 from errno import EINTR
 
 class Forwarder(Thread):
+    fast = False
     daemon = True
     port1 = None
     port2 = None

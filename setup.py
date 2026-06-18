@@ -12,7 +12,7 @@ from python.env import LAP_MOD_NAME
 is_win = get_platform().startswith('win')
 is_mac = get_platform().startswith('macosx-')
 
-lap_srcs = ['src/asyncproxy.c', 'src/asp_sock.c']
+lap_srcs = ['python/AsyncProxy_mod.c', 'src/asyncproxy.c', 'src/asp_sock.c']
 
 extra_compile_args = ['-Wall', '-DPYTHON_AWARE']
 if not is_win:
@@ -39,11 +39,11 @@ else:
     extra_link_args.extend(nodebug_opts)
 
 if not is_mac and not is_win:
-    extra_link_args.append('-Wl,--version-script=src/Symbol.map')
+    extra_link_args.append('-Wl,--version-script=python/AsyncProxy_mod.map')
 elif is_mac:
     extra_link_args.extend(['-undefined', 'dynamic_lookup'])
 
-module1 = Extension(LAP_MOD_NAME, sources = lap_srcs, \
+module1 = Extension(f'asyncproxy.{LAP_MOD_NAME}', sources = lap_srcs, \
     extra_link_args = extra_link_args, \
     extra_compile_args = extra_compile_args)
 

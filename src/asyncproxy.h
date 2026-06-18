@@ -23,6 +23,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <stddef.h>
+
 enum ap_dest {AP_DEST_HOST = 0, AP_DEST_FD};
 
 struct asyncproxy_ctor_args {
@@ -44,13 +46,37 @@ struct transform_res {
     size_t len;
 };
 
-void * asyncproxy_ctor(const struct asyncproxy_ctor_args *);
+struct asyncproxy_cb_args {
+    void *arg;
+    struct transform_res res;
+    size_t max_len;
+};
+
+typedef void (*asyncproxy_data_cb)(struct asyncproxy_cb_args *);
+typedef void (*asyncproxy_onconnect_cb)(struct asyncproxy_cb_args *);
+typedef void (*asyncproxy_onestablished_cb)(struct asyncproxy_cb_args *);
+typedef void (*asyncproxy_ondisconnect_cb)(void *);
+
+union asyncproxy_cb {
+    asyncproxy_data_cb data;
+    asyncproxy_onconnect_cb onconnect;
+    asyncproxy_onestablished_cb onestablished;
+    asyncproxy_ondisconnect_cb ondisconnect;
+};
+
+struct asyncproxy_cb_info {
+    union asyncproxy_cb cb;
+    void *cb_arg;
+};
+
+void * asyncproxy_ctor(const struct asyncproxy_ctor_args * const);
 int asyncproxy_start(void *);
 int asyncproxy_isalive(void *);
-void asyncproxy_set_i2o(void *, void (*)(struct transform_res *));
-void asyncproxy_set_o2i(void *, void (*)(struct transform_res *));
-void asyncproxy_set_onconnect(void *, void (*)(struct transform_res *, size_t));
-void asyncproxy_set_ondisconnect(void *, void (*)(void));
+void asyncproxy_set_i2o(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_o2i(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_onconnect(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_onestablished(void *, const struct asyncproxy_cb_info * const);
+void asyncproxy_set_ondisconnect(void *, const struct asyncproxy_cb_info * const);
 void asyncproxy_join(void *, int);
 void asyncproxy_dtor(void *);
 const char * asyncproxy_describe(void *);

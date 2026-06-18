@@ -26,6 +26,7 @@ import socket
 from .AsyncProxy import AsyncProxy, setdebug as AP_setdebug
 
 class ForwarderFast(AsyncProxy):
+    fast = True
     debug = False
     port1 = None
     _port2 = None

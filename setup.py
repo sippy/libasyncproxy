@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 import os
+import subprocess
 
+from distutils.command.build_ext import build_ext
 from distutils.core import setup
 from distutils.core import Extension
 from sysconfig import get_platform
@@ -16,8 +18,7 @@ lap_srcs = ['python/AsyncProxy_mod.c', 'src/asyncproxy.c', 'src/asp_sock.c']
 
 extra_compile_args = ['-Wall', '-DPYTHON_AWARE']
 if not is_win:
-    extra_compile_args += ['--std=c11', '-Wno-zero-length-array', '-Isrc/',
-                           '-flto', '-pedantic']
+    extra_compile_args += ['--std=c11', '-Isrc/', '-flto', '-pedantic']
 else:
     extra_compile_args.append('/std:clatest')
 extra_link_args = ['-flto'] if not is_win else []
@@ -43,6 +44,25 @@ if not is_mac and not is_win:
 elif is_mac:
     extra_link_args.extend(['-undefined', 'dynamic_lookup'])
 
+
+class build_ext_clang_warnings(build_ext):
+
+    def build_extensions(self):
+        if not is_win and self._compiler_is_clang():
+            for ext in self.extensions:
+                ext.extra_compile_args.append('-Wno-zero-length-array')
+        super().build_extensions()
+
+    def _compiler_is_clang(self):
+        compiler = self.compiler.compiler
+        try:
+            output = subprocess.check_output(
+                compiler + ['--version'], stderr=subprocess.STDOUT, text=True)
+        except (AttributeError, OSError, subprocess.CalledProcessError):
+            return False
+        return 'clang' in output.lower()
+
+
 module1 = Extension(f'asyncproxy.{LAP_MOD_NAME}', sources = lap_srcs, \
     extra_link_args = extra_link_args, \
     extra_compile_args = extra_compile_args)
@@ -66,6 +86,7 @@ kwargs = {'name':'asyncproxy',
       'packages':['asyncproxy',],
       'package_dir':{'asyncproxy':'python'},
       'ext_modules': get_ex_mod(),
+      'cmdclass': {'build_ext': build_ext_clang_warnings},
       'license': 'BSD-2-Clause',
       'classifiers': [
             'Operating System :: POSIX',

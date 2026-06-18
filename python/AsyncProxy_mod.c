@@ -1,8 +1,8 @@
+#include <Python.h>
+
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
-
-#include <Python.h>
 
 #include "asyncproxy.h"
 

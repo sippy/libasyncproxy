@@ -52,6 +52,12 @@ class TCPServer(Thread):
                 self.conn.close()
         except OSError:
             pass
+        if not self.done.is_set():
+            try:
+                with socket.create_connection(self.addr, timeout=0.2):
+                    pass
+            except OSError:
+                pass
         try:
             self.sock.close()
         except OSError:

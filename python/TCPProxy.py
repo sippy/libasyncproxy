@@ -200,6 +200,7 @@ class TCPProxy(TCPProxyBase, Thread):
                 forwarders.append(fwd)
             else:
                 self.dprint(lambda: f'joinning forwarder: {fwd.describe()}')
+                fwd.shutdown()
                 fwd.join()
                 self.dprint(lambda: f'joinning forwarder done: {fwd.describe()}')
         self.forwarders = forwarders
@@ -209,8 +210,8 @@ class TCPProxy(TCPProxyBase, Thread):
         while len(self.forwarders) > 0:
             forwarder = self.forwarders.pop()
             self.dprint(lambda: f'shutting down forwarder: {forwarder.describe()}')
-            if forwarder.isAlive():
-                forwarder.shutdown()
+            forwarder.shutdown()
             forwarder.join()
         self.sock.close()
-        self.join()
+        if self.ident is not None:
+            self.join()

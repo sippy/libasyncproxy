@@ -4,7 +4,7 @@ from ctypes import memmove
 from threading import Event, Thread
 
 from asyncproxy.ForwarderFast import ForwarderFast
-from asyncproxy.TCPProxy import TCPProxyActive
+from asyncproxy.TCPProxy import TCPProxy, TCPProxyActive
 
 
 class TCPServer(Thread):
@@ -79,6 +79,19 @@ class EstablishedTCPProxyActive(TCPProxyActive):
 
 
 class TCPProxyTest(unittest.TestCase):
+    def _close_server(self, server):
+        server.close()
+        server.join(2)
+        self.assertFalse(server.is_alive())
+
+    def _shutdown_proxy(self, proxy):
+        forwarders = list(proxy.forwarders)
+        proxy.shutdown()
+        self.assertFalse(proxy.is_alive())
+        self.assertEqual(proxy.sock.fileno(), -1)
+        for forwarder in forwarders:
+            self.assertIsNone(forwarder.source)
+
     def test_Forwarder_fast(self):
         self.assertIs(ForwarderFast.fast, True)
 
@@ -98,6 +111,59 @@ class TCPProxyTest(unittest.TestCase):
             forwarder.shutdown()
         finally:
             source.close()
+
+    def test_TCPProxy_shutdown_before_start(self):
+        proxy = TCPProxy(port=0, newhost="127.0.0.1", newport=9)
+        self.addCleanup(proxy.sock.close)
+        self.assertIsNone(proxy.ident)
+        self._shutdown_proxy(proxy)
+        self._shutdown_proxy(proxy)
+
+    def test_TCPProxy_instances_forward_independently(self):
+        sink1 = TCPServer(recv_len=5)
+        self.addCleanup(sink1.sock.close)
+        sink2 = TCPServer(recv_len=5)
+        self.addCleanup(sink2.sock.close)
+
+        sink1.start()
+        self.addCleanup(self._close_server, sink1)
+        sink2.start()
+        self.addCleanup(self._close_server, sink2)
+        self.assertTrue(sink1.ready.wait(1))
+        self.assertTrue(sink2.ready.wait(1))
+
+        proxy1 = TCPProxy(port=0, newhost=sink1.addr[0], newport=sink1.addr[1], bindhost="127.0.0.1")
+        self.addCleanup(self._shutdown_proxy, proxy1)
+        proxy2 = TCPProxy(port=0, newhost=sink2.addr[0], newport=sink2.addr[1], bindhost="127.0.0.1")
+        self.addCleanup(self._shutdown_proxy, proxy2)
+        self.assertFalse(proxy1.is_alive())
+        self.assertFalse(proxy2.is_alive())
+        proxy1.start()
+        proxy2.start()
+        self.assertTrue(proxy1.is_alive())
+        self.assertTrue(proxy2.is_alive())
+        self.assertNotEqual(proxy1.ident, proxy2.ident)
+
+        client1 = socket.create_connection(("127.0.0.1", proxy1.port), timeout=2)
+        self.addCleanup(client1.close)
+        client2 = socket.create_connection(("127.0.0.1", proxy2.port), timeout=2)
+        self.addCleanup(client2.close)
+        client1.sendall(b"one-1")
+        client2.sendall(b"two-2")
+
+        self.assertTrue(sink1.done.wait(2))
+        self.assertTrue(sink2.done.wait(2))
+        self.assertEqual(sink1.received, b"one-1")
+        self.assertEqual(sink2.received, b"two-2")
+
+        # Finish the workers before shutdown to check that their source sockets
+        # are still released when the workers are no longer alive.
+        client1.close()
+        client2.close()
+        for proxy in (proxy1, proxy2):
+            for forwarder in proxy.forwarders:
+                forwarder.join()
+                self.assertFalse(forwarder.isAlive())
 
     def test_TCPProxyActive_on_source_connect_sends_bytes(self):
         source_server = TCPServer(recv_len=5)

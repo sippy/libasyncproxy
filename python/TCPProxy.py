@@ -104,11 +104,13 @@ class TCPProxy(TCPProxyBase, Thread):
     dead = False
     forwarders = None
     allowed_ips: tuple = None
+    once = False
 
-    def __init__(self, *a, **kwa):
+    def __init__(self, *a, once = False, **kwa):
         super().__init__(*a, **kwa)
         self.forwarders = []
         self.sock.listen(500)
+        self.once = once
 
     def access_check(self, address):
         if self.allowed_ips is None or address[0] in self.allowed_ips:  # pylint: disable=unsupported-membership-test
@@ -157,13 +159,21 @@ class TCPProxy(TCPProxyBase, Thread):
                     continue
                 self.log("got socket.error exception: %s" % str(e))
                 continue
+            if self.once:
+                self.sock.close()
             try:
                 self.spawn_forwarder(newsock)
             except Exception:
                 newsock.shutdown(socket.SHUT_RDWR)
                 newsock.close()
+                if self.once:
+                    break
                 sleep(0.01)
                 continue
+            if self.once:
+                for fwd in self.forwarders:
+                    fwd.join()
+                break
         if self.disc_cb is not None:
             # pylint: disable-next=not-callable
             self.disc_cb()

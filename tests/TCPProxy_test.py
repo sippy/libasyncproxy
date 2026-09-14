@@ -90,18 +90,42 @@ class TCPProxyTest(unittest.TestCase):
         self.assertFalse(proxy.is_alive())
         self.assertEqual(proxy.sock.fileno(), -1)
         for forwarder in forwarders:
-            self.assertIsNone(forwarder.source)
+            self.assertFalse(forwarder.isAlive())
 
     def test_Forwarder_fast(self):
         self.assertIs(ForwarderFast.fast, True)
 
     def test_ForwarderFast_shutdown_unconnected_source(self):
-        forwarder = ForwarderFast.__new__(ForwarderFast)
-        forwarder.dead = False
-        forwarder.source = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        source = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(source.close)
+        forwarder = ForwarderFast(
+            source, (("127.0.0.1", 9), socket.AF_INET), source_peer_port=12345)
+        forwarder.shutdown()
         forwarder.shutdown()
         self.assertTrue(forwarder.dead)
-        self.assertIsNone(forwarder.source)
+        self.assertNotEqual(source.fileno(), -1)
+        self.assertEqual(source.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE), socket.SOCK_STREAM)
+
+    def test_ForwarderFast_shutdown_closed_source_stops_worker(self):
+        sink = TCPServer(recv_len=None)
+        sink.start()
+        self.addCleanup(self._close_server, sink)
+        source, client = socket.socketpair()
+        self.addCleanup(source.close)
+        self.addCleanup(client.close)
+        forwarder = ForwarderFast(
+            source, (sink.addr, socket.AF_INET), source_peer_port=12345)
+        self.addCleanup(forwarder.shutdown)
+        forwarder.start()
+        source.close()
+        self.assertTrue(sink.accepted.wait(1))
+        self.assertTrue(forwarder.isAlive())
+
+        forwarder.shutdown()
+        forwarder.shutdown()
+        self.assertFalse(forwarder.isAlive())
+        client.settimeout(1)
+        self.assertEqual(client.recv(1), b"")
 
     def test_ForwarderFast_port1_accepts_known_peer_port(self):
         source = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -156,8 +180,7 @@ class TCPProxyTest(unittest.TestCase):
         self.assertEqual(sink1.received, b"one-1")
         self.assertEqual(sink2.received, b"two-2")
 
-        # Finish the workers before shutdown to check that their source sockets
-        # are still released when the workers are no longer alive.
+        # Check that shutdown also handles workers that have already finished.
         client1.close()
         client2.close()
         for proxy in (proxy1, proxy2):

@@ -99,6 +99,11 @@ class TCPProxyActive(Forwarder, TCPProxyBase):
         super().shutdown()
         self.join()
 
+    def start(self):
+        super().start()
+        # Forwarder will dup() socket, so we can recycle it right away
+        self.sock.close()
+
 class TCPProxy(TCPProxyBase, Thread):
     daemon = True
     dead = False
@@ -193,6 +198,9 @@ class TCPProxy(TCPProxyBase, Thread):
             self.log(traceback.format_exc())
             self.log('-' * 70, True)
             raise
+        else:
+            # Forwarder will dup() socket, so we can recycle it right away
+            newsock.close()
 
         forwarders = []
         for fwd in self.forwarders:
